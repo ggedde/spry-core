@@ -1,0 +1,20 @@
+{
+    "name": "ggedde/spry-core",
+    "description": "PHP API Framework",
+    "type": "Framework",
+    "require": {
+        "php": ">=5.4.0",
+    },
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "ggedde",
+            "email": "ggeddedev@gmail.com"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Spry\\": "src/"
+        }
+    }
+}
