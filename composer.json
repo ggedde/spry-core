@@ -3,7 +3,7 @@
     "description": "PHP API Framework",
     "type": "Framework",
     "require": {
-        "php": ">=5.4.0",
+        "php": ">=5.4.0"
     },
     "license": "MIT",
     "authors": [
