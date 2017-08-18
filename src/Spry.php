@@ -16,7 +16,7 @@ use stdClass;
 
 class Spry {
 
-	private static $version = "0.9.2";
+	private static $version = "0.9.10";
 	private static $routes = [];
 	private static $params = [];
 	private static $db = null;
