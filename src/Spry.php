@@ -860,14 +860,15 @@ class Spry {
 			return self::build_response($response_code, $data, $messages);
 		}
 
-		if(empty($data) && $data !== null && $data !== 0 && (!self::$db || (self::$db && !self::$db->has_error())))
-		{
-			return self::build_response('4' . $response_code, $data, $messages);
-		}
-
 		if(!empty($data) || $data === 0)
 		{
 			return self::build_response('2' . $response_code, $data, $messages);
+		}
+
+		// if(empty($data) && $data !== null && $data !== 0 && (!self::$db || (self::$db && method_exists(self::$db, 'hasError') && !self::$db->hasError())))
+		if(empty($data) && $data !== null && $data !== 0)
+		{
+			return self::build_response('4' . $response_code, $data, $messages);
 		}
 
 		return self::build_response('5' . $response_code, null, $messages);
