@@ -25,6 +25,7 @@ class Spry {
 	private static $validator;
 	private static $auth;
 	private static $config;
+	private static $timestart;
 
 	/**
 	 * Initiates the API Call.
@@ -37,6 +38,8 @@ class Spry {
 
 	public static function run($config_file='')
 	{
+		self::$timestart = microtime(true);
+
 		if(empty($config_file) || !file_exists($config_file))
 		{
 			$response_codes = self::get_core_response_codes();
@@ -52,12 +55,12 @@ class Spry {
 
 		spl_autoload_register(array(__CLASS__, 'autoloader'));
 
-		// Configure Filters
+		// Configure Hook
 		if(!empty(self::$config->hooks->configure) && is_array(self::$config->hooks->configure))
 		{
-			foreach (self::$config->hooks->configure as $filter)
+			foreach (self::$config->hooks->configure as $hook)
 			{
-				self::get_response(self::get_controller($filter));
+				self::get_response(self::get_controller($hook));
 			}
 		}
 
@@ -65,29 +68,11 @@ class Spry {
 
 		self::check_tools();
 
-		self::$params = self::fetch_params();
-
-		// Param Filters
-		if(!empty(self::$config->hooks->params) && is_array(self::$config->hooks->params))
-		{
-			foreach (self::$config->hooks->params as $filter)
-			{
-				self::get_response(self::get_controller($filter));
-			}
-		}
+		self::set_params(self::fetch_params());
 
 		self::set_routes();
 
 		$route = self::get_route(self::$path);
-
-		// Route Filters
-		if(!empty(self::$config->hooks->routes) && is_array(self::$config->hooks->routes))
-		{
-			foreach (self::$config->hooks->routes as $filter)
-			{
-				self::get_response(self::get_controller($filter));
-			}
-		}
 
 		$controller = self::get_controller($route['controller']);
 
@@ -107,6 +92,7 @@ class Spry {
 		{
 			$config = new stdClass();
 			$config->hooks = new stdClass();
+			$config->filters = new stdClass();
 			$config->db = new stdClass();
 			require($config_file);
 
@@ -172,9 +158,21 @@ class Spry {
 
 	private static function set_routes()
 	{
-		foreach (self::$config->routes as $route_url => $route_class)
+		foreach (self::$config->routes as $route_path => $route)
 		{
-			self::add_route($route_url, $route_class);
+			if(!empty($route['controller']))
+			{
+				self::add_route($route_path, $route['controller']);
+			}
+		}
+
+		// Route Hooks
+		if(!empty(self::$config->hooks->set_routes) && is_array(self::$config->hooks->set_routes))
+		{
+			foreach (self::$config->hooks->set_routes as $hook)
+			{
+				self::get_response(self::get_controller($hook));
+			}
 		}
 	}
 
@@ -265,10 +263,10 @@ class Spry {
 
 		if(!empty($response))
 		{
-			return ['response' => self::response_type($code), 'response_code' => (int) $code, 'messages' => [$response]];
+			return ['response' => self::response_type($code), 'response_code' => (int) $code, 'response_time' => 0, 'messages' => [$response]];
 		}
 
-		return ['response' => 'unknown', 'response_code' => $code, 'messages' => ['Unkown Response Code']];
+		return ['response' => 'unknown', 'response_code' => $code, 'response_time' => 0, 'messages' => ['Unkown Response Code']];
 	}
 
 
@@ -309,13 +307,13 @@ class Spry {
 
 		$path = self::clean_path($path);
 
-		if(!empty($path) && !empty(self::$routes[$path]))
+		if(!empty($path) && !empty(self::$routes[$path]['controller']))
 		{
-			$route = ['path' => $path, 'controller' => self::$routes[$path]];
+			$route = ['path' => $path, 'controller' => self::$routes[$path]['controller']];
 
-			if(!empty(self::$config->hooks->get_route) && is_array(self::$config->hooks->get_route))
+			if(!empty(self::$config->filters->get_route) && is_array(self::$config->filters->get_route))
 			{
-				foreach (self::$config->hooks->get_route as $filter)
+				foreach (self::$config->filters->get_route as $filter)
 				{
 					$route = self::get_response(self::get_controller($filter), $route);
 				}
@@ -325,6 +323,32 @@ class Spry {
 		}
 
 		self::stop(5011); // Request Not Found
+	}
+
+
+	/**
+	 * Returns the public Routes available.
+ 	 *
+ 	 * @access 'public'
+ 	 * @return array
+	 */
+
+	public static function get_routes()
+	{
+		$public_routes = [];
+
+		if(!empty(self::$routes))
+		{
+			foreach (self::$routes as $route_path => $route)
+			{
+				if(!isset($route['access']) || (isset($route['access']) && strtolower($route['access']) === 'public'))
+				{
+					$public_routes[$route_path] = $route;
+				}
+			}
+		}
+
+		return $public_routes;
 	}
 
 
@@ -387,12 +411,12 @@ class Spry {
 
 			self::$db = new $class(self::$config->db);
 
-			// Database Filters
+			// Database Hooks
 			if(!empty(self::$config->hooks->database) && is_array(self::$config->hooks->database))
 			{
-				foreach (self::$config->hooks->database as $filter)
+				foreach (self::$config->hooks->database as $hook)
 				{
-					self::get_response(self::get_controller($filter));
+					self::get_response(self::get_controller($hook));
 				}
 			}
 		}
@@ -490,9 +514,9 @@ class Spry {
 				'messages' => $messages
 			];
 
-			foreach (self::$config->hooks->stop as $filter)
+			foreach (self::$config->hooks->stop as $hook)
 			{
-				self::get_response(self::get_controller($filter), $params);
+				self::get_response(self::get_controller($hook), $params);
 			}
 		}
 
@@ -587,9 +611,9 @@ class Spry {
 
 		if(!empty($data))
 		{
-			if(!empty(self::$config->hooks->fetch_params) && is_array(self::$config->hooks->fetch_params))
+			if(!empty(self::$config->filters->params) && is_array(self::$config->filters->params))
 			{
-				foreach (self::$config->hooks->fetch_params as $filter)
+				foreach (self::$config->filters->params as $filter)
 				{
 					$data = self::get_response(self::get_controller($filter), $data);
 				}
@@ -668,12 +692,30 @@ class Spry {
 
 	public static function set_params($params=[])
 	{
-		if(empty($params) || !is_array($params))
+		if(!empty($params))
 		{
-			return false;
+			self::$params = array_merge(self::$params, $params);
 		}
 
-		self::$params = array_merge(self::$params, $params);
+		if(is_array(self::$params))
+		{
+			if(!empty(self::$config->filters->params) && is_array(self::$config->filters->params))
+			{
+				foreach (self::$config->filters->params as $filter)
+				{
+					self::$params = self::get_response(self::get_controller($filter), self::$params);
+				}
+			}
+		}
+
+		// Set Param Hooks
+		if(!empty(self::$config->hooks->set_params) && is_array(self::$config->hooks->set_params))
+		{
+			foreach (self::$config->hooks->set_params as $hook)
+			{
+				self::get_response(self::get_controller($hook));
+			}
+		}
 
 		return true;
 	}
@@ -701,9 +743,9 @@ class Spry {
 			$path = '::spry_cli';
 		}
 
-		if(!empty(self::$config->hooks->get_path) && is_array(self::$config->hooks->get_path))
+		if(!empty(self::$config->filters->get_path) && is_array(self::$config->filters->get_path))
 		{
-			foreach (self::$config->hooks->get_path as $filter)
+			foreach (self::$config->filters->get_path as $filter)
 			{
 				$path = self::get_response(self::get_controller($filter), $path);
 			}
@@ -906,9 +948,9 @@ class Spry {
 			$response['messages'] = array_merge($response['messages'], $messages);
 		}
 
-		if(!empty(self::$config->hooks->build_response) && is_array(self::$config->hooks->build_response))
+		if(!empty(self::$config->filters->build_response) && is_array(self::$config->filters->build_response))
 		{
-			foreach (self::$config->hooks->build_response as $filter)
+			foreach (self::$config->filters->build_response as $filter)
 			{
 				$response = self::get_response(self::get_controller($filter), $response);
 			}
@@ -962,9 +1004,9 @@ class Spry {
 			$response = self::build_response('', $response);
 		}
 
-		if(!empty(self::$config->hooks->send_response) && is_array(self::$config->hooks->send_response))
+		if(!empty(self::$config->filters->response) && is_array(self::$config->filters->response))
 		{
-			foreach (self::$config->hooks->send_response as $filter)
+			foreach (self::$config->filters->response as $filter)
 			{
 				$response = self::get_response(self::get_controller($filter), $response);
 			}
@@ -985,7 +1027,7 @@ class Spry {
  	 * @return void
 	 */
 
-	private static function send_output($output=array(), $run_hooks=true)
+	private static function send_output($output=array(), $run_filters=true)
 	{
 		$default_response_headers = [
 			'Access-Control-Allow-Origin: *',
@@ -995,11 +1037,13 @@ class Spry {
 
 		$headers = (isset(self::$config->default_response_headers) ? self::$config->default_response_headers : $default_response_headers);
 
+		$output['response_time'] = number_format(microtime(true) - self::$timestart, 6);
+
 		$output = ['headers' => $headers, 'body' => json_encode($output)];
 
-		if($run_hooks && !empty(self::$config->hooks->send_output) && is_array(self::$config->hooks->send_output))
+		if($run_filters && !empty(self::$config->filters->output) && is_array(self::$config->filters->output))
 		{
-			foreach (self::$config->hooks->send_output as $filter)
+			foreach (self::$config->filters->output as $filter)
 			{
 				$output = self::get_response(self::get_controller($filter), $output);
 			}
