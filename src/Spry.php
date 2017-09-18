@@ -25,7 +25,9 @@ class Spry {
 	private static $validator;
 	private static $auth;
 	private static $config;
+	private static $config_file = '';
 	private static $timestart;
+	private static $cli = false;
 
 	/**
 	 * Initiates the API Call.
@@ -36,9 +38,11 @@ class Spry {
  	 * @return void
 	 */
 
-	public static function run($config_file='')
+	public static function run($config_file='', $controller='')
 	{
 		self::$timestart = microtime(true);
+
+		self::$cli = self::is_cli();
 
 		if(empty($config_file) || !file_exists($config_file))
 		{
@@ -72,18 +76,34 @@ class Spry {
 
 		self::set_routes();
 
-		$route = self::get_route(self::$path);
-
-		$controller = self::get_controller($route['controller']);
+		if($controller)
+		{
+			$controller = self::get_controller($controller);
+		}
+		else
+		{
+			$route = self::get_route(self::$path);
+			$controller = self::get_controller($route['controller']);
+		}
 
 		$response = self::get_response($controller);
 
 		self::send_response($response);
 	}
 
+	private static function is_cli()
+	{
+		return (php_sapi_name() === 'cli' || (!empty($_SERVER['argc']) && is_numeric($_SERVER['argc']) && $_SERVER['argc'] > 0));
+	}
+
 	public static function get_version()
 	{
 		return self::$version;
+	}
+
+	public static function get_config_file()
+	{
+		return self::$config_file;
 	}
 
 	public static function load_config($config_file='')
@@ -96,6 +116,8 @@ class Spry {
 			$config->db = new stdClass();
 			require($config_file);
 
+			self::$config_file = $config_file;
+
 			$config->response_codes = array_replace(self::get_core_response_codes(), (!empty($config->response_codes) ? $config->response_codes : []));
 			self::$config = $config;
 		}
@@ -104,7 +126,8 @@ class Spry {
 	private static function get_core_response_codes()
 	{
 		return [
-			4000 => ['en' => 'No Results Found'],
+			2000 => ['en' => 'Success!'],
+			4000 => ['en' => 'No Results'],
 			5000 => ['en' => 'Error: Unknown Error'],
 			5001 => ['en' => 'Error: Missing Config File'],
 			5002 => ['en' => 'Error: Missing Salt in Config File'],
@@ -131,6 +154,10 @@ class Spry {
 			5051 => ['en' => 'Error: Retrieving Tests'],
 			5052 => ['en' => 'Error: No Tests Configured'],
 			5053 => ['en' => 'Error: No Test with that name Configured'],
+
+			/* Background Process */
+			5060 => ['en' => 'Error: Background Process did not return Process ID'],
+			5061 => ['en' => 'Error: Background Process could not find autoload'],
 
 		];
 	}
@@ -162,7 +189,7 @@ class Spry {
 		{
 			if(!empty($route['controller']))
 			{
-				self::add_route($route_path, $route['controller']);
+				self::add_route($route_path, $route);
 			}
 		}
 
@@ -218,7 +245,7 @@ class Spry {
  	 * @return array
 	 */
 
-	private static function response_codes(int $code=0)
+	private static function response_codes($code=0)
 	{
 		$lang = 'en';
 		$type = 4;
@@ -281,10 +308,10 @@ class Spry {
  	 * @return void
 	 */
 
-	private static function add_route($path, $controller)
+	private static function add_route($path, $route)
 	{
 		$path = self::clean_path($path);
-		self::$routes[$path] = $controller;
+		self::$routes[$path] = $route;
 	}
 
 
@@ -452,9 +479,16 @@ class Spry {
 			self::$log = new $class();
 		}
 
-		if($message && method_exists(self::$log,'log'))
+		if($message)
 		{
-			return self::$log->log($message);
+			if(method_exists(self::$log,'log'))
+			{
+				return self::$log->log($message);
+			}
+			else
+			{
+				trigger_error('Spry: Log Provider missing method "log".', E_USER_WARNING);
+			}
 		}
 
 		return self::$log;
@@ -596,7 +630,14 @@ class Spry {
 
 	private static function fetch_params()
 	{
-		if($data = trim(file_get_contents('php://input')))
+		$data = trim(file_get_contents('php://input'));
+
+		if(empty($data) && self::$cli)
+		{
+			$data = trim(file_get_contents('php://stdin'));
+		}
+
+		if($data)
 		{
 			if(in_array(substr($data, 0, 1), ['[','{']))
 			{
@@ -891,6 +932,11 @@ class Spry {
 	public static function response($response_code=0, $data=null, $messages=[])
 	{
 		$response_code = strval($response_code);
+
+		if(strlen($response_code) < 2)
+		{
+			$response_code = '00'.$response_code;
+		}
 
 		if(strlen($response_code) < 3)
 		{
