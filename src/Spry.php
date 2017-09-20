@@ -38,23 +38,70 @@ class Spry {
  	 * @return void
 	 */
 
-	public static function run($config_file='', $controller='')
+	public static function run($args=[])
 	{
 		self::$timestart = microtime(true);
 
-		self::$cli = self::is_cli();
+		if($args && is_string($args))
+		{
+			if(file_exists($args))
+			{
+				$args = ['config' => $args];
+			}
+			else
+			{
+				$args = json_decode( $args, true );
+			}
 
-		if(empty($config_file) || !file_exists($config_file))
+			if(empty($args) || !is_array($args))
+			{
+				$response_codes = self::get_core_response_codes();
+
+				// Logger may not be setup so trigger php notice
+				trigger_error('Spry: '.$response_codes[5003]['en']);
+
+				self::stop(5003, null, $response_codes[5003]['en']);
+			}
+		}
+
+		// Set Defaults
+		$args = array_merge([
+            'config' => '',
+            'path' => '',
+            'controller' => '',
+            'params' => null,
+        ], $args);
+
+		if(empty($args['config']) || (is_string($args['config']) && !file_exists($args['config'])))
 		{
 			$response_codes = self::get_core_response_codes();
+
+			// Logger may not be setup so trigger php notice
+			trigger_error('Spry: '.$response_codes[5001]['en']);
+
 			self::stop(5001, null, $response_codes[5001]['en']);
 		}
 
-		self::load_config($config_file);
+		self::$cli = self::is_cli();
+
+		// Setup Config
+		if(is_string($args['config']))
+		{
+			self::load_config($args['config']);
+		}
+		else
+		{
+			self::$config = $args['config'];
+		}
 
 		if(empty(self::$config->salt))
 		{
-			self::stop(5002);
+			$response_codes = self::get_core_response_codes();
+
+			// Logger may not be setup so trigger php notice
+			trigger_error('Spry: '.$response_codes[5002]['en']);
+
+			self::stop(5002, null, $response_codes[5002]['en']);
 		}
 
 		spl_autoload_register(array(__CLASS__, 'autoloader'));
@@ -68,17 +115,17 @@ class Spry {
 			}
 		}
 
-		self::$path = self::get_path();
+		self::$path = (!empty($args['path']) ? $args['path'] : self::get_path());
 
 		self::check_tools();
 
-		self::set_params(self::fetch_params());
+		self::set_params(self::fetch_params($args['params']));
 
 		self::set_routes();
 
-		if($controller)
+		if($args['controller'])
 		{
-			$controller = self::get_controller($controller);
+			$controller = self::get_controller($args['controller']);
 		}
 		else
 		{
@@ -91,7 +138,7 @@ class Spry {
 		self::send_response($response);
 	}
 
-	private static function is_cli()
+	public static function is_cli()
 	{
 		return (php_sapi_name() === 'cli' || (!empty($_SERVER['argc']) && is_numeric($_SERVER['argc']) && $_SERVER['argc'] > 0));
 	}
@@ -131,6 +178,7 @@ class Spry {
 			5000 => ['en' => 'Error: Unknown Error'],
 			5001 => ['en' => 'Error: Missing Config File'],
 			5002 => ['en' => 'Error: Missing Salt in Config File'],
+			5003 => ['en' => 'Error: Unknown configuration error on run'],
 
 			5010 => ['en' => 'Error: No Parameters Found.'],
 			5011 => ['en' => 'Error: Route Not Found.'],
@@ -138,6 +186,7 @@ class Spry {
 			5013 => ['en' => 'Error: Class Method Not Found.'],
 			5014 => ['en' => 'Error: Returned Data is not in JSON format.'],
 			5015 => ['en' => 'Error: Class Method is not Callable. Make sure it is Public.'],
+			5016 => ['en' => 'Error: Controller Not Found.'],
 
 			5020 => ['en' => 'Error: Field did not Validate.'],
 
@@ -147,6 +196,9 @@ class Spry {
 			5031 => ['en' => 'Error: Database Connect Error.'],
 			5032 => ['en' => 'Error: Missing Database Credentials from config.'],
 			5033 => ['en' => 'Error: Database Provider not found.'],
+
+			/* Log */
+			5040 => ['en' => 'Error: Log Provider not found.'],
 
 			/* Tests */
 			2050 => ['en' => 'Test Passed Successfully'],
@@ -158,6 +210,7 @@ class Spry {
 			/* Background Process */
 			5060 => ['en' => 'Error: Background Process did not return Process ID'],
 			5061 => ['en' => 'Error: Background Process could not find autoload'],
+			5062 => ['en' => 'Error: Unknown response from Background Process'],
 
 		];
 	}
@@ -466,12 +519,12 @@ class Spry {
 		{
 			if(empty(self::$config->logger))
 			{
-				self::stop(5032);
+				self::stop(5040);
 			}
 
 			if(!class_exists(self::$config->logger))
 			{
-				self::stop(5033);
+				self::stop(5040);
 			}
 
 			$class = self::$config->logger;
@@ -628,16 +681,23 @@ class Spry {
  	 * @return array
 	 */
 
-	private static function fetch_params()
+	private static function fetch_params($params=null)
 	{
-		$data = trim(file_get_contents('php://input'));
-
-		if(empty($data) && self::$cli)
+		if(!is_null($params))
 		{
-			$data = trim(file_get_contents('php://stdin'));
+			$data = $params;
+		}
+		else
+		{
+			$data = trim(file_get_contents('php://input'));
+
+			if(empty($data) && self::$cli)
+			{
+				$data = trim(file_get_contents('php://stdin'));
+			}
 		}
 
-		if($data)
+		if($data && is_string($data))
 		{
 			if(in_array(substr($data, 0, 1), ['[','{']))
 			{
@@ -645,6 +705,7 @@ class Spry {
 			}
 			else
 			{
+				# TODO
 				echo '<pre>';print_r($data);echo '</pre>';
 				exit;
 			}
@@ -819,17 +880,17 @@ class Spry {
 	 * Returns the Controller Object and Method by name.
 	 * Throughs stop() on failure.
 	 *
-	 * @param string $controller_name
+	 * @param string $controller
  	 *
  	 * @access 'private'
  	 * @return array
 	 */
 
-	private static function get_controller($controller_name='')
+	private static function get_controller($controller='')
 	{
-		if(!empty($controller_name))
+		if(!empty($controller))
 		{
-			list($class, $method) = explode('::', $controller_name);
+			list($class, $method) = explode('::', $controller);
 
 			if(class_exists($class))
 			{
@@ -852,11 +913,38 @@ class Spry {
 				{
 					return ['obj' => $obj, 'method' => $method];
 				}
-				self::stop(5013, null, $controller_name); // Method Not Found
+				self::stop(5013, null, $controller); // Method Not Found
 			}
 		}
 
-		self::stop(5012, null, $controller_name); // Controller Not Found
+		self::stop(5012, null, $controller); // Controller Not Found
+	}
+
+
+
+	public static function controller_exists($controller='')
+	{
+		if(!empty($controller))
+		{
+			list($class, $method) = explode('::', $controller);
+
+			if(class_exists($class))
+			{
+				if(method_exists($class, $method))
+				{
+					return true;
+				}
+			}
+			else if(class_exists('Spry\\SpryComponent\\'.$class))
+			{
+				if(method_exists('Spry\\SpryComponent\\'.$class, $method))
+				{
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 
