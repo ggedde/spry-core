@@ -117,8 +117,6 @@ class Spry {
 
 		self::$path = (!empty($args['path']) ? $args['path'] : self::get_path());
 
-		self::check_tools();
-
 		self::set_params(self::fetch_params($args['params']));
 
 		self::set_routes();
@@ -215,18 +213,6 @@ class Spry {
 		];
 	}
 
-
-	private static function check_tools()
-	{
-		if(!empty(self::$config->webtools_enabled))
-		{
-			if(!empty(self::$config->webtools_endpoint) && self::$path === '/'.trim(self::$config->webtools_endpoint, '/').'/')
-			{
-				$controller = self::get_controller('Spry\\SpryProvider\\SpryTools::displayWebTools');
-				$response = self::get_response($controller);
-			}
-		}
-	}
 
 
 	/**
@@ -657,22 +643,6 @@ class Spry {
 
 
 	/**
-	 * Return a formatted alphnumeric safe version of the string.
-	 *
- 	 * @param string $string
- 	 *
- 	 * @access 'public'
- 	 * @return string
-	 */
-
-	public static function sanitize($string)
-	{
-		return preg_replace("/\W/", '', str_replace([' ', '-'], '_', strtolower($string)));
-	}
-
-
-
-	/**
 	 * Gets the Data sent in the API Call and converts it to Parameters.
 	 * Then returns the converted Parameters as array.
 	 * Throughs stop() on failure.
@@ -945,43 +915,6 @@ class Spry {
 		}
 
 		return false;
-	}
-
-
-
-	/**
-	 * Creates a one way Hash value used for Passwords and other authentication.
-	 *
- 	 * @param string $value
- 	 *
- 	 * @access 'public'
- 	 * @return string
-	 */
-
-	public static function hash($value)
-	{
-		$salt = '';
-
-		if(!empty(self::$config->salt))
-		{
-			$salt = self::$config->salt;
-		}
-
-		return md5(serialize($value).$salt);
-	}
-
-
-
-	/**
-	 * Returns the Root Directory of the API.
- 	 *
- 	 * @access 'public'
- 	 * @return object
-	 */
-
-	public static function dir()
-	{
-		return dirname(__FILE__);
 	}
 
 
