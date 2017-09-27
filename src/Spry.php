@@ -16,7 +16,7 @@ use stdClass;
 
 class Spry {
 
-	private static $version = "0.9.12";
+	private static $version = "0.9.13";
 	private static $routes = [];
 	private static $params = [];
 	private static $db = null;
@@ -116,6 +116,15 @@ class Spry {
 		}
 
 		self::$path = (!empty($args['path']) ? $args['path'] : self::get_path());
+
+		// Set Path Hook
+		if(!empty(self::$config->hooks->set_path) && is_array(self::$config->hooks->set_path))
+		{
+			foreach (self::$config->hooks->set_path as $hook)
+			{
+				self::get_response(self::get_controller($hook));
+			}
+		}
 
 		self::set_params(self::fetch_params($args['params']));
 
