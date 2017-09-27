@@ -16,7 +16,7 @@ use stdClass;
 
 class Spry {
 
-	private static $version = "0.9.15";
+	private static $version = "0.9.16";
 	private static $routes = [];
 	private static $params = [];
 	private static $db = null;
@@ -50,7 +50,13 @@ class Spry {
 			}
 			else
 			{
-				$args = json_decode( $args, true );
+				// Check if it is not Json and if so then base64_decode it.
+				if(!preg_match('/[\"\[\{]+/', $args))
+				{
+					$args = base64_decode($args);
+				}
+
+				$args = json_decode($args, true );
 			}
 
 			if(empty($args) || !is_array($args))
@@ -58,7 +64,7 @@ class Spry {
 				$response_codes = self::get_core_response_codes();
 
 				// Logger may not be setup so trigger php notice
-				trigger_error('Spry: '.$response_codes[5003]['en']);
+				trigger_error('Spry ERROR: '.$response_codes[5003]['en']);
 
 				self::stop(5003, null, $response_codes[5003]['en']);
 			}
@@ -77,7 +83,7 @@ class Spry {
 			$response_codes = self::get_core_response_codes();
 
 			// Logger may not be setup so trigger php notice
-			trigger_error('Spry: '.$response_codes[5001]['en']);
+			trigger_error('Spry ERROR: '.$response_codes[5001]['en']);
 
 			self::stop(5001, null, $response_codes[5001]['en']);
 		}
