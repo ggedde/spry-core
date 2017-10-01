@@ -239,9 +239,9 @@ class Spry {
 
 	private static function set_routes()
 	{
-		foreach (self::$config->routes as $route_path => $route)
+		foreach(self::$config->routes as $route_path => $route)
 		{
-			if(!empty($route['controller']))
+			if(!empty($route) && (!isset($route['active']) || !empty($route['active'])))
 			{
 				self::add_route($route_path, $route);
 			}
@@ -365,6 +365,21 @@ class Spry {
 	private static function add_route($path, $route)
 	{
 		$path = self::clean_path($path);
+		if(!is_array($route))
+		{
+			$route = [
+				'label' => ucwords(preg_replace('/\W|_/', ' ', $path)),
+				'controller' => $route
+			];
+		}
+
+		$route = array_merge([
+			'controller' => '',
+			'active' => true,
+			'public' => true,
+			'label' => ''
+		], $route);
+
 		self::$routes[$path] = $route;
 	}
 
@@ -379,32 +394,42 @@ class Spry {
  	 * @return array
 	 */
 
-	public static function get_route($path=null)
-	{
-		if(!$path)
-		{
-			$path = self::$path;
-		}
+	 public static function get_route($path=null)
+ 	{
+ 		if(!$path)
+ 		{
+ 			$path = self::$path;
+ 		}
 
-		$path = self::clean_path($path);
+ 		$path = self::clean_path($path);
 
-		if(!empty($path) && !empty(self::$routes[$path]['controller']))
-		{
-			$route = ['path' => $path, 'controller' => self::$routes[$path]['controller']];
+ 		if(!empty($path))
+ 		{
+ 			if(!empty(self::$routes[$path]['controller']))
+ 			{
+ 				$route = ['path' => $path, 'controller' => self::$routes[$path]['controller']];
+ 			}
+ 			else if(!empty(self::$routes[$path]))
+ 			{
+ 				$route = ['path' => $path, 'controller' => self::$routes[$path]];
+ 			}
+ 		}
 
-			if(!empty(self::$config->filters->get_route) && is_array(self::$config->filters->get_route))
-			{
-				foreach (self::$config->filters->get_route as $filter)
-				{
-					$route = self::get_response(self::get_controller($filter), $route);
-				}
-			}
+ 		if(!empty($route))
+ 		{
+ 			if(!empty(self::$config->filters->get_route) && is_array(self::$config->filters->get_route))
+ 			{
+ 				foreach (self::$config->filters->get_route as $filter)
+ 				{
+ 					$route = self::get_response(self::get_controller($filter), $route);
+ 				}
+ 			}
 
-			return $route;
-		}
+ 			return $route;
+ 		}
 
-		self::stop(5011); // Request Not Found
-	}
+ 		self::stop(5011); // Request Not Found
+ 	}
 
 
 	/**
@@ -422,7 +447,7 @@ class Spry {
 		{
 			foreach (self::$routes as $route_path => $route)
 			{
-				if(!isset($route['access']) || (isset($route['access']) && strtolower($route['access']) === 'public'))
+				if(!isset($route['public']) || !empty($route['public']))
 				{
 					$public_routes[$route_path] = $route;
 				}
