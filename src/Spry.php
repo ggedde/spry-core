@@ -16,7 +16,7 @@ use stdClass;
 
 class Spry {
 
-	private static $version = "0.9.21";
+	private static $version = "0.9.22";
 	private static $routes = [];
 	private static $params = [];
 	private static $db = null;
@@ -604,6 +604,14 @@ class Spry {
 
 			foreach (self::$config->hooks->stop as $hook)
 			{
+				// Skip Get Controller if Contrller not exists only here
+				// As it could cause a seg fault loop
+				if(!self::controller_exists($hook))
+				{
+					$response = self::build_response(5016, null, $hook);
+					self::send_response($response);
+				}
+
 				self::get_response(self::get_controller($hook), $params);
 			}
 		}
@@ -872,40 +880,50 @@ class Spry {
 	 */
 
 	private static function get_controller($controller='')
-	{
-		if(!empty($controller))
-		{
-			list($class, $method) = explode('::', $controller);
+ 	{
+ 		if(!empty($controller))
+ 		{
+ 			$response_codes = self::get_core_response_codes();
 
-			if(class_exists($class))
-			{
-				$obj = new $class;
-			}
-			else if(class_exists('Spry\\SpryComponent\\'.$class))
-			{
-				$class = 'Spry\\SpryComponent\\'.$class;
-				$obj = new $class;
-			}
-			else
-			{
-				$response_codes = self::get_core_response_codes();
-				self::send_output(['response' => 'error', 'response_code' => 5012, 'messages' => [$response_codes[5012]['en'], $class]], false);
-			}
+ 			list($class, $method) = explode('::', $controller);
 
-			if($obj)
-			{
-				if(method_exists($obj, $method))
-				{
-					return ['obj' => $obj, 'method' => $method];
-				}
-				self::stop(5013, null, $controller); // Method Not Found
-			}
-		}
+ 			$paths = [
+ 				'',
+ 				'Spry\\SpryComponent\\'
+ 			];
 
-		self::stop(5012, null, $controller); // Controller Not Found
-	}
+ 			foreach($paths as $path)
+ 			{
+ 				if(class_exists($path.$class))
+ 				{
+ 					if(method_exists($path.$class, $method))
+ 					{
+ 						return ['class' => $path.$class, 'method' => $method];
+ 					}
+
+ 					// No Method for that Class
+ 					self::send_output(['response' => 'error', 'response_code' => 5013, 'messages' => [$response_codes[5013]['en'], $path.$class.'::'.$method]], false);
+ 				}
+ 			}
+
+ 			// No Classes Found
+ 			self::send_output(['response' => 'error', 'response_code' => 5012, 'messages' => [$response_codes[5012]['en'], $class]], false);
+ 		}
+
+ 		// No Controller
+ 		self::send_output(['response' => 'error', 'response_code' => 5016, 'messages' => [$response_codes[5016]['en'], $controller]], false);
+ 	}
 
 
+
+	/**
+	 * Determines whether a Controller Exists.
+	 *
+	 * @param string $controller
+ 	 *
+ 	 * @access 'public'
+ 	 * @return boolean
+	 */
 
 	public static function controller_exists($controller='')
 	{
@@ -1054,17 +1072,17 @@ class Spry {
 
 	private static function get_response($controller=array(), $params=null)
 	{
-		if(!is_callable(array($controller['obj'], $controller['method'])))
+		if(!is_callable(array($controller['class'], $controller['method'])))
 		{
-			self::stop(5015, null, $controller['method']);
+			self::stop(5015, null, $controller['class'].'::'.$controller['method']);
 		}
 
 		if($params)
 		{
-			return call_user_func(array($controller['obj'], $controller['method']), $params);
+			return call_user_func(array($controller['class'], $controller['method']), $params);
 		}
 
-		return call_user_func(array($controller['obj'], $controller['method']));
+		return call_user_func(array($controller['class'], $controller['method']));
 	}
 
 
