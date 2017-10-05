@@ -16,7 +16,7 @@ use stdClass;
 
 class Spry {
 
-	private static $version = "0.9.25";
+	private static $version = "0.9.26";
 	private static $routes = [];
 	private static $params = [];
 	private static $db = null;
@@ -344,10 +344,10 @@ class Spry {
 
 		if(!empty($response))
 		{
-			return ['response' => self::response_type($code), 'response_code' => (int) $code, 'response_time' => 0, 'messages' => [$response]];
+			return ['status' => self::response_type($code), 'code' => (int) $code, 'time' => 0, 'messages' => [$response]];
 		}
 
-		return ['response' => 'unknown', 'response_code' => $code, 'response_time' => 0, 'messages' => ['Unkown Response Code']];
+		return ['status' => 'unknown', 'code' => $code, 'time' => 0, 'messages' => ['Unkown Response Code']];
 	}
 
 
@@ -622,7 +622,7 @@ class Spry {
 		if(!empty(self::$config->hooks->stop) && is_array(self::$config->hooks->stop))
 		{
 			$params = [
-				'response_code' => $response_code,
+				'code' => $response_code,
 				'data' => $data,
 				'messages' => $messages
 			];
@@ -927,16 +927,16 @@ class Spry {
  					}
 
  					// No Method for that Class
- 					self::send_output(['response' => 'error', 'response_code' => 5013, 'messages' => [$response_codes[5013]['en'], $path.$class.'::'.$method]], false);
+ 					self::send_output(['status' => 'error', 'code' => 5013, 'messages' => [$response_codes[5013]['en'], $path.$class.'::'.$method]], false);
  				}
  			}
 
  			// No Classes Found
- 			self::send_output(['response' => 'error', 'response_code' => 5012, 'messages' => [$response_codes[5012]['en'], $class]], false);
+ 			self::send_output(['status' => 'error', 'code' => 5012, 'messages' => [$response_codes[5012]['en'], $class]], false);
  		}
 
  		// No Controller
- 		self::send_output(['response' => 'error', 'response_code' => 5016, 'messages' => [$response_codes[5016]['en'], $controller]], false);
+ 		self::send_output(['status' => 'error', 'code' => 5016, 'messages' => [$response_codes[5016]['en'], $controller]], false);
  	}
 
 
@@ -988,7 +988,7 @@ class Spry {
 
 	public static function get_body($result)
 	{
-		if(!empty($result['response']) && $result['response'] === 'success' && isset($result['body']))
+		if(!empty($result['status']) && $result['status'] === 'success' && isset($result['body']))
 		{
 			return $result['body'];
 		}
@@ -1059,7 +1059,7 @@ class Spry {
 
 		if($data !== null)
 		{
-			$response['body_hash'] = md5(serialize($data));
+			$response['hash'] = md5($response_code.serialize($data));
 			$response['body'] = $data;
 		}
 
@@ -1124,7 +1124,7 @@ class Spry {
 
 	public static function send_response($response=array())
 	{
-		if(empty($response['response']) || empty($response['response_code']))
+		if(empty($response['status']) || empty($response['code']))
 		{
 			$response = self::build_response('', $response);
 		}
@@ -1162,7 +1162,7 @@ class Spry {
 
 		$headers = (isset(self::$config->default_response_headers) ? self::$config->default_response_headers : $default_response_headers);
 
-		$output['response_time'] = number_format(microtime(true) - self::$timestart, 6);
+		$output['time'] = number_format(microtime(true) - self::$timestart, 6);
 
 		$output = ['headers' => $headers, 'body' => json_encode($output)];
 
