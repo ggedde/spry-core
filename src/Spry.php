@@ -1160,7 +1160,7 @@ class Spry {
 			'Access-Control-Allow-Headers: X-Requested-With, content-type'
 		];
 
-		$headers = (isset(self::$config->default_response_headers) ? self::$config->default_response_headers : $default_response_headers);
+		$headers = (isset(self::$config->response_headers) ? self::$config->response_headers : $default_response_headers);
 
 		$output['time'] = number_format(microtime(true) - self::$timestart, 6);
 
