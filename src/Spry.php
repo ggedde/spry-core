@@ -121,6 +121,12 @@ class Spry {
 			}
 		}
 
+		// Return Data Immediately if is a PreFlight OPTIONS Request
+		if(!empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS')
+		{
+			self::send_output();
+		}
+
 		self::$path = (!empty($args['path']) ? $args['path'] : self::get_path());
 
 		// Set Path Hook
