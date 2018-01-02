@@ -16,12 +16,13 @@ use stdClass;
 
 class Spry {
 
-	private static $version = "0.9.30";
+	private static $version = "0.9.31";
 	private static $routes = [];
 	private static $params = [];
 	private static $db = null;
 	private static $log = null;
-	private static $path;
+	private static $path = null;
+	private static $route = null;
 	private static $validator;
 	private static $auth;
 	private static $config;
@@ -148,11 +149,11 @@ class Spry {
 		}
 		else
 		{
-			$route = self::get_route(self::$path);
-			$controller = self::get_controller($route['controller']);
+			self::$route = self::get_route(self::$path);
+			$controller = self::get_controller(self::$route['controller']);
 		}
 
-		$response = self::get_response($controller);
+		$response = self::get_response($controller, self::validate_params());
 
 		self::send_response($response);
 	}
@@ -371,6 +372,7 @@ class Spry {
 	private static function add_route($path, $route)
 	{
 		$path = self::clean_path($path);
+
 		if(!is_array($route))
 		{
 			$route = [
@@ -383,12 +385,312 @@ class Spry {
 			'controller' => '',
 			'active' => true,
 			'public' => true,
-			'label' => ''
+			'label' => '',
+			'params' => [],
 		], $route);
 
 		self::$routes[$path] = $route;
 	}
 
+
+
+	/**
+	 * Adds a route to the allowed list.
+ 	 *
+ 	 * @param string $path
+ 	 * @param string $controller
+ 	 *
+ 	 * @access 'private'
+ 	 * @return void
+	 */
+
+	public static function validate_params($path=null, $params=null, $args=null)
+	{
+		if(!empty($path))
+		{
+			$route = self::get_route($path);
+		}
+
+		if(empty($route))
+		{
+			$route = (self::$route ? self::$route : self::get_route());
+		}
+
+		if(is_null($params))
+		{
+			$params = self::params();
+		}
+
+		if(empty($route['params']))
+		{
+			$new_params = $params;
+		}
+		else
+		{
+			$new_params = [];
+
+			$message_fields = [
+				'required',
+				'minlength',
+				'maxlength',
+				'length',
+				'betweenlength',
+				'min',
+				'max',
+				'between',
+				'matches',
+				'notmatches',
+				'startswith',
+				'notstartswith',
+				'endswith',
+				'notendswith',
+				'int',
+				'integer',
+				'number',
+				'float',
+				'digits',
+				'ccnum',
+				'ip',
+				'email',
+				'date',
+				'mindate',
+				'maxdate',
+				'url',
+				'oneof',
+				'callback',
+			];
+
+			foreach($route['params'] as $param_key => $param_settings)
+			{
+				// Skip if not Required or Param is not present
+				if(empty($param_settings['required']) && !isset($params[$param_key]))
+				{
+					continue;
+				}
+
+				// Set Default
+				if(!isset($params[$param_key]) && isset($param_settings['default']))
+				{
+					$params[$param_key] = $param_settings['default'];
+				}
+
+				$messages = [];
+
+				foreach ($message_fields as $field)
+				{
+					$messages[$field] = (!empty($param_settings['messages'][$field]) ? $param_settings['messages'][$field] : null);
+				}
+
+				// Construct Validator
+				$validator = self::validator($params);
+
+				if(!empty($param_settings['required']))
+				{
+					if(is_array($param_settings['required']))
+					{
+						if(count($param_settings['required']) > 1)
+						{
+							list($required_param, $required_value) = $param_settings['required'];
+
+							if(isset($params[$required_param]) && $params[$required_param] === $required_value)
+							{
+								$validator->required($messages['required']);
+							}
+						}
+					}
+					else
+					{
+						$validator->required($messages['required']);
+					}
+
+				}
+
+				if(isset($param_settings['minlength']))
+				{
+					$validator->minLength($param_settings['minlength'], $messages['minlength']);
+				}
+
+				if(isset($param_settings['maxlength']))
+				{
+					$validator->maxLength($param_settings['maxlength'], $messages['maxlength']);
+				}
+
+				if(isset($param_settings['length']))
+				{
+					$validator->length($param_settings['length'], $messages['length']);
+				}
+
+				if(isset($param_settings['min']))
+				{
+					$validator->min($param_settings['min'], true, $messages['min']);
+				}
+
+				if(isset($param_settings['max']))
+				{
+					$validator->max($param_settings['max'], true, $messages['max']);
+				}
+
+				if(isset($param_settings['between']))
+				{
+					$validator->between(
+						$param_settings['between'][0],
+						$param_settings['between'][1],
+						true,
+						$messages['between']
+					);
+				}
+
+				if(isset($param_settings['betweenlength']))
+				{
+					$validator->betweenlength(
+						$param_settings['betweenlength'][0],
+						$param_settings['betweenlength'][1],
+						$messages['betweenlength']
+					);
+				}
+
+				if(isset($param_settings['matches']))
+				{
+					$validator->matches(
+						$param_settings['matches'],
+						ucwords($param_settings['matches']),
+						$messages['matches']
+					);
+				}
+
+				if(isset($param_settings['notmatches']))
+				{
+					$validator->notmatches(
+						$param_settings['notmatches'],
+						ucwords($param_settings['notmatches']),
+						$messages['notmatches']
+					);
+				}
+
+				if(isset($param_settings['startswith']))
+				{
+					$validator->startsWith($param_settings['startswith'], $messages['startswith']);
+				}
+
+				if(isset($param_settings['notstartswith']))
+				{
+					$validator->notstartsWith($param_settings['notstartswith'], $messages['notstartswith']);
+				}
+
+				if(isset($param_settings['endswith']))
+				{
+					$validator->endsWith($param_settings['endswith'], $messages['endswith']);
+				}
+
+				if(isset($param_settings['notendswith']))
+				{
+					$validator->notendsWith($param_settings['notendswith'], $messages['notendswith']);
+				}
+
+				if(isset($param_settings['integer']))
+				{
+					$validator->integer($messages['integer']);
+				}
+
+				// Alias of Integer
+				if(isset($param_settings['int']))
+				{
+					$validator->integer($messages['int']);
+				}
+
+				if(isset($param_settings['float']))
+				{
+					$validator->float($messages['float']);
+				}
+
+				// Alias of Float
+				if(isset($param_settings['number']))
+				{
+					$validator->float($messages['number']);
+				}
+
+				// Alias of Float
+				if(isset($param_settings['num']))
+				{
+					$validator->float($messages['num']);
+				}
+
+				if(isset($param_settings['digits']))
+				{
+					$validator->digits($messages['digits']);
+				}
+
+				if(isset($param_settings['ccnum']))
+				{
+					$validator->ccnum($messages['ccnum']);
+				}
+
+				if(isset($param_settings['email']))
+				{
+					$validator->email($messages['email']);
+				}
+
+				if(isset($param_settings['date']))
+				{
+					$validator->date($messages['date']);
+				}
+
+				if(isset($param_settings['mindate']))
+				{
+					$validator->minDate($param_settings['mindate'], null, $messages['mindate']);
+				}
+
+				if(isset($param_settings['maxdate']))
+				{
+					$validator->maxDate($param_settings['maxdate'], null, $messages['maxdate']);
+				}
+
+				if(isset($param_settings['url']))
+				{
+					$validator->url($messages['url']);
+				}
+
+				if(isset($param_settings['ip']))
+				{
+					$validator->ip($messages['ip']);
+				}
+
+				if(isset($param_settings['oneof']))
+				{
+					$validator->oneOf($param_settings['oneof'], $messages['oneof']);
+				}
+
+				if(isset($param_settings['callback']))
+				{
+					$validator->callback($param_settings['callback'], $messages['callback']);
+				}
+
+				if(isset($param_settings['filter']))
+				{
+					$validator->filter($param_settings['filter']);
+				}
+
+				if(!empty($param_settings['validateonly']))
+				{
+					$validator->validate($param_key);
+				}
+				else
+				{
+					$new_params[$param_key] = $validator->validate($param_key);
+				}
+			}
+		}
+
+		if(!empty(self::$config->filters->validate_params) && is_array(self::$config->filters->validate_params))
+		{
+			foreach(self::$config->filters->validate_params as $filter)
+			{
+				$new_params = self::get_response(self::get_controller($filter), $new_params);
+			}
+		}
+
+		return $new_params;
+	}
 
 
 	/**
@@ -400,7 +702,7 @@ class Spry {
  	 * @return array
 	 */
 
-	 public static function get_route($path=null)
+	public static function get_route($path=null)
  	{
  		if(!$path)
  		{
@@ -411,14 +713,12 @@ class Spry {
 
  		if(!empty($path))
  		{
- 			if(!empty(self::$routes[$path]['controller']))
+ 			if(empty(self::$routes[$path]['controller']))
  			{
- 				$route = ['path' => $path, 'controller' => self::$routes[$path]['controller']];
+ 				self::stop(5011);
  			}
- 			else if(!empty(self::$routes[$path]))
- 			{
- 				$route = ['path' => $path, 'controller' => self::$routes[$path]];
- 			}
+
+			$route = self::$routes[$path];
  		}
 
  		if(!empty($route))
@@ -891,11 +1191,7 @@ class Spry {
 
 	private static function clean_path($path)
 	{
-		if(substr($path, -1) === '/')
-		{
-			return trim($path);
-		}
-		return trim($path).'/';
+		return '/'.trim($path, " \t\n\r\0\x0B\/").'/';
 	}
 
 
@@ -914,6 +1210,11 @@ class Spry {
  	{
  		if(!empty($controller))
  		{
+			if(!is_string($controller) && is_callable($controller))
+			{
+				return ['function' => $controller, 'class' => null, 'method' => null];
+			}
+
  			$response_codes = self::get_core_response_codes();
 
  			list($class, $method) = explode('::', $controller);
@@ -1103,6 +1404,16 @@ class Spry {
 
 	private static function get_response($controller=array(), $params=null)
 	{
+		if(isset($controller['function']) && is_callable($controller['function']))
+		{
+			if($params)
+			{
+				return call_user_func($controller['function'], $params);
+			}
+
+			return call_user_func($controller['function'], $params);
+		}
+
 		if(!is_callable(array($controller['class'], $controller['method'])))
 		{
 			self::stop(5015, null, $controller['class'].'::'.$controller['method']);
