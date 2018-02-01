@@ -444,6 +444,7 @@ class Spry {
 				'notstartswith',
 				'endswith',
 				'notendswith',
+				'array',
 				'int',
 				'integer',
 				'number',
@@ -585,6 +586,11 @@ class Spry {
 				if(isset($param_settings['notendswith']))
 				{
 					$validator->notendsWith($param_settings['notendswith'], $messages['notendswith']);
+				}
+
+				if(isset($param_settings['array']))
+				{
+					$validator->isarray($messages['array']);
 				}
 
 				if(isset($param_settings['integer']))
