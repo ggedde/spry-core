@@ -16,7 +16,7 @@ use stdClass;
 
 class Spry {
 
-	private static $version = "0.9.31";
+	private static $version = "0.9.32";
 	private static $routes = [];
 	private static $params = [];
 	private static $db = null;
@@ -463,8 +463,22 @@ class Spry {
 
 			foreach($route['params'] as $param_key => $param_settings)
 			{
+				$required = (empty($param_settings['required']) ? false : true);
+
+				if(!empty($param_settings['required']))
+				{
+					reset($param_settings['required']);
+					while($required_field = each($param_settings['required']))
+					{
+						if(!isset($params[$required_field['key']]) || $params[$required_field['key']] !== $required_field['value'])
+						{
+							$required = false;
+						}
+					}
+				}
+
 				// Skip if not Required or Param is not present
-				if(empty($param_settings['required']) && !isset($params[$param_key]))
+				if(empty($required) && !isset($params[$param_key]))
 				{
 					continue;
 				}
@@ -485,25 +499,9 @@ class Spry {
 				// Construct Validator
 				$validator = self::validator($params);
 
-				if(!empty($param_settings['required']))
+				if($required)
 				{
-					if(is_array($param_settings['required']))
-					{
-						if(count($param_settings['required']) > 1)
-						{
-							list($required_param, $required_value) = $param_settings['required'];
-
-							if(isset($params[$required_param]) && $params[$required_param] === $required_value)
-							{
-								$validator->required($messages['required']);
-							}
-						}
-					}
-					else
-					{
-						$validator->required($messages['required']);
-					}
-
+					$validator->required($messages['required']);
 				}
 
 				if(isset($param_settings['minlength']))
