@@ -113,6 +113,17 @@ class Spry {
 
 		spl_autoload_register(array(__CLASS__, 'autoloader'));
 
+		// Configure Filter
+		if(!empty(self::$config->filters->configure) && is_array(self::$config->filters->configure))
+		{
+			$filtered_config = self::$config;
+			foreach(self::$config->filters->configure as $filter)
+			{
+				$filtered_config = self::get_response(self::get_controller($filter), $filtered_config);
+			}
+			self::$config = $filtered_config;
+		}
+
 		// Configure Hook
 		if(!empty(self::$config->hooks->configure) && is_array(self::$config->hooks->configure))
 		{
