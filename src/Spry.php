@@ -91,15 +91,8 @@ class Spry {
 
 		self::$cli = self::is_cli();
 
-		// Setup Config
-		if(is_string($args['config']))
-		{
-			self::load_config($args['config']);
-		}
-		else
-		{
-			self::$config = $args['config'];
-		}
+		// Setup Config Data Autoloader and Configure Filters
+		self::configure($args['config']);
 
 		if(empty(self::$config->salt))
 		{
@@ -109,19 +102,6 @@ class Spry {
 			trigger_error('Spry: '.$response_codes[5002]['en']);
 
 			self::stop(5002, null, $response_codes[5002]['en']);
-		}
-
-		spl_autoload_register(array(__CLASS__, 'autoloader'));
-
-		// Configure Filter
-		if(!empty(self::$config->filters->configure) && is_array(self::$config->filters->configure))
-		{
-			$filtered_config = self::$config;
-			foreach(self::$config->filters->configure as $filter)
-			{
-				$filtered_config = self::get_response(self::get_controller($filter), $filtered_config);
-			}
-			self::$config = $filtered_config;
 		}
 
 		// Configure Hook
@@ -184,20 +164,43 @@ class Spry {
 		return self::$config_file;
 	}
 
-	public static function load_config($config_file='')
+	public static function configure($config_data='')
 	{
-		if(empty(self::$config))
+		if(!empty(self::$config))
+		{
+			return false;
+		}
+
+		if(is_object($config_data))
+		{
+			$config = $config_data;
+		}
+		else
 		{
 			$config = new stdClass();
 			$config->hooks = new stdClass();
 			$config->filters = new stdClass();
 			$config->db = new stdClass();
-			require($config_file);
 
-			self::$config_file = $config_file;
+			require($config_data);
+			self::$config_file = $config_data;
+		}
 
-			$config->response_codes = array_replace(self::get_core_response_codes(), (!empty($config->response_codes) ? $config->response_codes : []));
-			self::$config = $config;
+		$config->response_codes = array_replace(self::get_core_response_codes(), (!empty($config->response_codes) ? $config->response_codes : []));
+		self::$config = $config;
+
+		// Set AutoLoaders for Components, Providers and Plugins
+		spl_autoload_register(array(__CLASS__, 'autoloader'));
+
+		// Configure Filter
+		if(!empty(self::$config->filters->configure) && is_array(self::$config->filters->configure))
+		{
+			$filtered_config = self::$config;
+			foreach(self::$config->filters->configure as $filter)
+			{
+				$filtered_config = self::get_response(self::get_controller($filter), $filtered_config);
+			}
+			self::$config = $filtered_config;
 		}
 	}
 
