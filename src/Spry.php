@@ -417,6 +417,11 @@ class Spry {
 		{
 			$new_params = [];
 
+			if(!empty($params['test_data']))
+			{
+				$new_params['test_data'] = $params['test_data'];
+			}
+
 			$message_fields = [
 				'required',
 				'minlength',
