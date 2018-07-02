@@ -105,13 +105,7 @@ class Spry {
 		}
 
 		// Configure Hook
-		if(!empty(self::$config->hooks->configure) && is_array(self::$config->hooks->configure))
-		{
-			foreach (self::$config->hooks->configure as $hook)
-			{
-				self::get_response(self::get_controller($hook));
-			}
-		}
+		self::run_hook('configure');
 
 		// Return Data Immediately if is a PreFlight OPTIONS Request
 		if(!empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS')
@@ -122,13 +116,7 @@ class Spry {
 		self::$path = (!empty($args['path']) ? $args['path'] : self::get_path());
 
 		// Set Path Hook
-		if(!empty(self::$config->hooks->set_path) && is_array(self::$config->hooks->set_path))
-		{
-			foreach (self::$config->hooks->set_path as $hook)
-			{
-				self::get_response(self::get_controller($hook));
-			}
-		}
+		self::run_hook('set_path');
 
 		self::set_params(self::fetch_params($args['params']));
 
@@ -193,15 +181,7 @@ class Spry {
 		spl_autoload_register(array(__CLASS__, 'autoloader'));
 
 		// Configure Filter
-		if(!empty(self::$config->filters->configure) && is_array(self::$config->filters->configure))
-		{
-			$filtered_config = self::$config;
-			foreach(self::$config->filters->configure as $filter)
-			{
-				$filtered_config = self::get_response(self::get_controller($filter), $filtered_config);
-			}
-			self::$config = $filtered_config;
-		}
+		self::$config = self::run_filter('configure', self::$config);
 	}
 
 	private static function get_core_response_codes()
@@ -269,13 +249,7 @@ class Spry {
 		}
 
 		// Route Hooks
-		if(!empty(self::$config->hooks->set_routes) && is_array(self::$config->hooks->set_routes))
-		{
-			foreach (self::$config->hooks->set_routes as $hook)
-			{
-				self::get_response(self::get_controller($hook));
-			}
-		}
+		self::run_hook('set_routes');
 	}
 
 
@@ -699,13 +673,7 @@ class Spry {
 			}
 		}
 
-		if(!empty(self::$config->filters->validate_params) && is_array(self::$config->filters->validate_params))
-		{
-			foreach(self::$config->filters->validate_params as $filter)
-			{
-				$new_params = self::get_response(self::get_controller($filter), $new_params);
-			}
-		}
+		$new_params = self::run_filter('validate_params', $new_params);
 
 		return $new_params;
 	}
@@ -741,14 +709,7 @@ class Spry {
 
  		if(!empty($route))
  		{
- 			if(!empty(self::$config->filters->get_route) && is_array(self::$config->filters->get_route))
- 			{
- 				foreach (self::$config->filters->get_route as $filter)
- 				{
- 					$route = self::get_response(self::get_controller($filter), $route);
- 				}
- 			}
-
+			$route = self::run_filter('get_route', $route);
  			return $route;
  		}
 
@@ -842,13 +803,7 @@ class Spry {
 			self::$db = new $class(self::$config->db);
 
 			// Database Hooks
-			if(!empty(self::$config->hooks->database) && is_array(self::$config->hooks->database))
-			{
-				foreach (self::$config->hooks->database as $hook)
-				{
-					self::get_response(self::get_controller($hook));
-				}
-			}
+			self::run_hook('database');
 		}
 
 		return self::$db;
@@ -943,27 +898,13 @@ class Spry {
 			$messages = [$messages];
 		}
 
-		if(!empty(self::$config->hooks->stop) && is_array(self::$config->hooks->stop))
-		{
-			$params = [
-				'code' => $response_code,
-				'data' => $data,
-				'messages' => $messages
-			];
+		$params = [
+			'code' => $response_code,
+			'data' => $data,
+			'messages' => $messages
+		];
 
-			foreach (self::$config->hooks->stop as $hook)
-			{
-				// Skip Get Controller if Contrller not exists only here
-				// As it could cause a seg fault loop
-				if(!self::controller_exists($hook))
-				{
-					$response = self::build_response(5016, null, $hook);
-					self::send_response($response);
-				}
-
-				self::get_response(self::get_controller($hook), $params);
-			}
-		}
+		self::run_hook('stop', $params);
 
 		$response = self::build_response($response_code, $data, $messages);
 
@@ -1055,13 +996,7 @@ class Spry {
 
 		if(!empty($data))
 		{
-			if(!empty(self::$config->filters->params) && is_array(self::$config->filters->params))
-			{
-				foreach (self::$config->filters->params as $filter)
-				{
-					$data = self::get_response(self::get_controller($filter), $data);
-				}
-			}
+			$data = self::run_filter('params', $data);
 		}
 
 		if(!empty($data) && !is_array($data))
@@ -1143,23 +1078,11 @@ class Spry {
 
 		if(is_array(self::$params))
 		{
-			if(!empty(self::$config->filters->params) && is_array(self::$config->filters->params))
-			{
-				foreach (self::$config->filters->params as $filter)
-				{
-					self::$params = self::get_response(self::get_controller($filter), self::$params);
-				}
-			}
+			self::$params = self::run_filter('params', self::$params);
 		}
 
 		// Set Param Hooks
-		if(!empty(self::$config->hooks->set_params) && is_array(self::$config->hooks->set_params))
-		{
-			foreach (self::$config->hooks->set_params as $hook)
-			{
-				self::get_response(self::get_controller($hook));
-			}
-		}
+		self::run_hook('set_params');
 
 		return true;
 	}
@@ -1187,14 +1110,7 @@ class Spry {
 			$path = '::spry_cli';
 		}
 
-		if(!empty(self::$config->filters->get_path) && is_array(self::$config->filters->get_path))
-		{
-			foreach (self::$config->filters->get_path as $filter)
-			{
-				$path = self::get_response(self::get_controller($filter), $path);
-			}
-		}
-
+		$path = self::run_filter('get_path', $path);
 		return $path;
 	}
 
@@ -1322,6 +1238,62 @@ class Spry {
 	}
 
 
+	public static function run_filter($filter_key=null, $data=null)
+	{
+		if(!empty(self::$config->filters->$filter_key) && is_array(self::$config->filters->$filter_key))
+		{
+			foreach(self::$config->filters->$filter_key as $filter => $filter_data)
+			{
+				if(is_int($filter))
+				{
+					$filter = $filter_data;
+					$data = self::get_response(self::get_controller($filter), $data);
+				}
+				else
+				{
+					$data = self::get_response(self::get_controller($filter), $data, $filter_data);
+				}
+
+			}
+		}
+
+		return $data;
+	}
+
+
+	public static function run_hook($hook_key=null, $data=null)
+	{
+		if(!empty(self::$config->hooks->$hook_key) && is_array(self::$config->hooks->$hook_key))
+		{
+			foreach(self::$config->hooks->$hook_key as $hook => $hook_data)
+			{
+				if(is_int($hook))
+				{
+					$hook = $hook_data;
+				}
+
+				// Skip Get Controller if Contrller not exists only for STOP
+				// As it could cause a seg fault loop
+				if($hook_key === 'stop' && !self::controller_exists($hook))
+				{
+					$response = self::build_response(5016, null, $hook);
+					self::send_response($response);
+					exit;
+				}
+
+				if($hook === $hook_data)
+				{
+					self::get_response(self::get_controller($hook), $data);
+				}
+				else
+				{
+					self::get_response(self::get_controller($hook), $data, $hook_data);
+				}
+			}
+		}
+	}
+
+
 
 	/**
 	 * Formats the Results given by a Controller method.
@@ -1398,13 +1370,7 @@ class Spry {
 			$response['messages'] = array_merge($response['messages'], $messages);
 		}
 
-		if(!empty(self::$config->filters->build_response) && is_array(self::$config->filters->build_response))
-		{
-			foreach (self::$config->filters->build_response as $filter)
-			{
-				$response = self::get_response(self::get_controller($filter), $response);
-			}
-		}
+		$response = self::run_filter('build_response', $response);
 
 		return $response;
 	}
@@ -1415,21 +1381,24 @@ class Spry {
 	 * Returns the Response from a given Controller method
 	 *
 	 * @param array $controller
+	 * @param null $params			Params as Filtered items or from hook
+	 * @param array $options		Options sent from Filter or Hook
  	 *
  	 * @access 'private'
  	 * @return mixed
 	 */
 
-	private static function get_response($controller=array(), $params=null)
+	private static function get_response($controller=array(), $params=null, $options=null)
 	{
 		if(isset($controller['function']) && is_callable($controller['function']))
 		{
-			if($params)
-			{
-				return call_user_func($controller['function'], $params);
-			}
+			if($options)
+			return call_user_func($controller['function'], $params, $options);
 
+			if($params)
 			return call_user_func($controller['function'], $params);
+
+			return call_user_func($controller['function']);
 		}
 
 		if(!is_callable(array($controller['class'], $controller['method'])))
@@ -1437,10 +1406,11 @@ class Spry {
 			self::stop(5015, null, $controller['class'].'::'.$controller['method']);
 		}
 
+		if($options)
+		return call_user_func(array($controller['class'], $controller['method']), $params, $options);
+
 		if($params)
-		{
-			return call_user_func(array($controller['class'], $controller['method']), $params);
-		}
+		return call_user_func(array($controller['class'], $controller['method']), $params);
 
 		return call_user_func(array($controller['class'], $controller['method']));
 	}
@@ -1464,13 +1434,7 @@ class Spry {
 			$response = self::build_response('', $response);
 		}
 
-		if(!empty(self::$config->filters->response) && is_array(self::$config->filters->response))
-		{
-			foreach (self::$config->filters->response as $filter)
-			{
-				$response = self::get_response(self::get_controller($filter), $response);
-			}
-		}
+		$response = self::run_filter('response', $response);
 
 		self::send_output($response);
 	}
@@ -1501,13 +1465,7 @@ class Spry {
 
 		$output = ['headers' => $headers, 'body' => json_encode($output)];
 
-		if($run_filters && !empty(self::$config->filters->output) && is_array(self::$config->filters->output))
-		{
-			foreach (self::$config->filters->output as $filter)
-			{
-				$output = self::get_response(self::get_controller($filter), $output);
-			}
-		}
+		$output = self::run_filter('output', $output);
 
 		if(!empty($output['headers']))
 		{
