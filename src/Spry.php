@@ -458,7 +458,7 @@ class Spry {
 			{
 				$required = (empty($param_settings['required']) ? false : true);
 
-				if(!empty($param_settings['required']))
+				if(!empty($param_settings['required']) && is_array($param_settings['required']))
 				{
 					reset($param_settings['required']);
 					while($required_field = each($param_settings['required']))
