@@ -29,6 +29,7 @@ class Spry {
 	private static $config_file = '';
 	private static $timestart;
 	private static $cli = false;
+	private static $test = false;
 
 	/**
 	 * Initiates the API Call.
@@ -120,6 +121,9 @@ class Spry {
 
 		self::set_params(self::fetch_params($args['params']));
 
+		// IF Test Data then set currnt transaction as Test
+		if(!empty(self::$params['test_data'])) self::$test = true;
+
 		self::set_routes();
 
 		if($args['controller'])
@@ -140,6 +144,11 @@ class Spry {
 	public static function is_cli()
 	{
 		return (php_sapi_name() === 'cli' || (!empty($_SERVER['argc']) && is_numeric($_SERVER['argc']) && $_SERVER['argc'] > 0));
+	}
+
+	public static function is_test()
+	{
+		return self::$test;
 	}
 
 	public static function get_version()
