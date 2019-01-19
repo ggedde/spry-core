@@ -143,7 +143,7 @@ class Spry {
 
 	public static function is_cli()
 	{
-		return (in_array(php_sapi_name(), ['cli', 'cli-server']) || (!empty($_SERVER['argc']) && is_numeric($_SERVER['argc']) && $_SERVER['argc'] > 0));
+		return (php_sapi_name() === 'cli' || (!empty($_SERVER['argc']) && is_numeric($_SERVER['argc']) && $_SERVER['argc'] > 0));
 	}
 
 	public static function is_test()
