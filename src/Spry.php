@@ -203,7 +203,6 @@ class Spry {
 			5002 => ['en' => 'Error: Missing Salt in Config File'],
 			5003 => ['en' => 'Error: Unknown configuration error on run'],
 
-			5010 => ['en' => 'Error: No Parameters Found.'],
 			5011 => ['en' => 'Error: Route Not Found.'],
 			5012 => ['en' => 'Error: Class Not Found.'],
 			5013 => ['en' => 'Error: Class Method Not Found.'],
@@ -1018,12 +1017,7 @@ class Spry {
 			self::stop(5014); // Returned Data is not in JSON format
 		}
 
-		if(!empty($data) && is_array($data))
-		{
-			return $data;
-		}
-
-		self::stop(5010); // No Parameters Found
+		return $data;
 	}
 
 
