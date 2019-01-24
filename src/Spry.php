@@ -464,6 +464,17 @@ class Spry {
 
 			foreach($route['params'] as $param_key => $param_settings)
 			{
+				if(is_int($param_key) && $param_settings && is_string($param_settings))
+				{
+					$param_key = $param_settings;
+					$param_settings = [];
+				}
+
+				if(!isset($param_settings['trim']) && !empty($route['params_trim']))
+				{
+					$param_settings['trim'] = true;
+				}
+
 				$required = (empty($param_settings['required']) ? false : true);
 
 				if(!empty($param_settings['required']) && is_array($param_settings['required']))
@@ -682,6 +693,26 @@ class Spry {
 				else
 				{
 					$new_params[$param_key] = $validator->validate($param_key);
+
+					if(is_array($new_params[$param_key]) || is_object($new_params[$param_key]))
+					{
+						if(!empty($param_settings['trim']))
+						{
+							$new_params[$param_key] = array_values(array_filter(array_map('trim', $new_params[$param_key])));
+						}
+
+						if(!empty($param_settings['unique']))
+						{
+							$new_params[$param_key] = array_values(array_unique($new_params[$param_key]));
+						}
+					}
+					else
+					{
+						if(!empty($param_settings['trim']))
+						{
+							$new_params[$param_key] = trim($new_params[$param_key]);
+						}
+					}
 				}
 			}
 		}
