@@ -136,7 +136,14 @@ class Spry {
 			$controller = self::get_controller(self::$route['controller']);
 		}
 
-		$response = self::get_response($controller, self::validate_params());
+		if(self::$cli)
+		{
+			$response = self::get_response($controller, self::$params);
+		}
+		else
+		{
+			$response = self::get_response($controller, self::validate_params());
+		}
 
 		self::send_response($response);
 	}
@@ -1147,6 +1154,10 @@ class Spry {
 		else if(isset($_SERVER['SCRIPT_FILENAME']) && strpos($_SERVER['SCRIPT_FILENAME'], 'SpryCli.php'))
 		{
 			$path = '::spry_cli';
+		}
+		else if(self::$cli)
+		{
+			$path = '::cli';
 		}
 
 		$path = self::run_filter('get_path', $path);
