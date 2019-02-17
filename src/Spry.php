@@ -30,6 +30,7 @@ class Spry {
 	private static $timestart;
 	private static $cli = false;
 	private static $test = false;
+	private static $request_id = '';
 
 	/**
 	 * Initiates the API Call.
@@ -43,6 +44,7 @@ class Spry {
 	public static function run($args=[])
 	{
 		self::$timestart = microtime(true);
+		self::$request_id = md5(uniqid('', true));
 
 		if($args && is_string($args))
 		{
@@ -119,12 +121,12 @@ class Spry {
 		// Set Path Hook
 		self::run_hook('set_path');
 
+		self::set_routes();
+
 		self::set_params(self::fetch_params($args['params']));
 
 		// IF Test Data then set currnt transaction as Test
 		if(!empty(self::$params['test_data'])) self::$test = true;
-
-		self::set_routes();
 
 		if($args['controller'])
 		{
@@ -167,9 +169,28 @@ class Spry {
 	{
 		return self::$config_file;
 	}
+	
+	public static function get_request_id()
+	{
+		return self::$request_id;
+	}
+
+	public static function get_method()
+	{
+		$method = strtoupper(trim(!empty($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'POST'));
+		if(in_array($method, ['POST', 'GET', 'PUT', 'DELETE']))
+		{
+			return $method;
+		}
+	}
 
 	public static function configure($config_data='')
 	{
+		if(empty(self::$request_id))
+		{
+			self::$request_id = md5(uniqid('', true));
+		}
+
 		if(!empty(self::$config))
 		{
 			return false;
@@ -216,6 +237,7 @@ class Spry {
 			5014 => ['en' => 'Error: Returned Data is not in JSON format.'],
 			5015 => ['en' => 'Error: Class Method is not Callable. Make sure it is Public.'],
 			5016 => ['en' => 'Error: Controller Not Found.'],
+			5017 => ['en' => 'Error: Method not allowed by Route.'],
 
 			5020 => ['en' => 'Error: Field did not Validate.'],
 
@@ -354,10 +376,10 @@ class Spry {
 
 		if(!empty($response))
 		{
-			return ['status' => self::response_type($code), 'code' => (int) $code, 'time' => 0, 'messages' => [$response]];
+			return ['status' => self::response_type($code), 'code' => (int) $code, 'messages' => [$response]];
 		}
 
-		return ['status' => 'unknown', 'code' => $code, 'time' => 0, 'messages' => ['Unkown Response Code']];
+		return ['status' => 'unknown', 'code' => $code, 'messages' => ['Unkown Response Code']];
 	}
 
 
@@ -752,14 +774,63 @@ class Spry {
  		{
  			if(empty(self::$routes[$path]['controller']))
  			{
- 				self::stop(5011);
- 			}
+				foreach(self::$routes as $route_url => $route) 
+				{
+					if(is_string($route))
+					{
+						$route_url = $route;
+					}
+	
+					$route_reg = '/'.str_replace('/', '\\/', preg_replace('/\{[^\}]+\}/', '(.*)', $route_url)).'/';
+	
+					if(preg_match($route_reg, $path))
+					{
+						$path = $route_url;
+						break;
+					}
+				}
+			}
+
+			if(empty(self::$routes[$path]['controller']))
+			{
+				foreach(self::$routes as $route_url => $route) 
+				{
+					if(is_string($route))
+					{
+						$route_url = $route;
+					}
+
+					if(strpos($route_url, '{') !== false && strpos($route_url, '}'))
+					{
+						$stripped_path = preg_replace('/\{[^\}]+\}\/?/', '', $route_url);
+	
+						if($stripped_path === $path)
+						{
+							$path = $route_url;
+							break;
+						}
+					}
+				}
+			}
+			
+			if(empty(self::$routes[$path]['controller']))
+			{
+				self::stop(5011);
+			}
 
 			$route = self::$routes[$path];
  		}
 
  		if(!empty($route))
  		{
+			$route['methods'] = array_map('trim', array_map('strtoupper', (!empty($route['methods']) ? $route['methods'] : ['POST'])));
+
+			// If Methods are configured for route then check if method is allowed
+			if(!empty($route['methods']) && is_array($route['methods']) && !in_array(self::get_method(), $route['methods']))
+			{
+				self::stop(5017, $_POST); // Methoed not allowed
+			}
+
 			$route = self::run_filter('get_route', $route);
  			return $route;
  		}
@@ -1028,6 +1099,38 @@ class Spry {
 			if(empty($data) && self::$cli)
 			{
 				$data = trim(file_get_contents('php://stdin'));
+			}
+
+			if(empty($data) && self::get_method() === 'GET' && !empty($_GET))
+			{
+				$data = $_GET;
+			}
+
+			if(empty($data) && self::get_method() === 'POST' && !empty($_POST))
+			{
+				$data = $_POST;
+			}
+
+			foreach(self::$routes as $route_url => $route) 
+			{	
+				if(is_string($route))
+				{
+					$route_url = $route;
+				}
+
+				$route_reg = '/'.str_replace('/', '\\/', preg_replace('/\{[^\}]+\}/', '(.*)', $route_url)).'/';
+
+				preg_match_all('/\{([^\}]+)\}/', $route_url, $match_params);
+				preg_match_all($route_reg, self::$path, $match_values);
+
+				if(preg_match($route_reg, self::$path) && !empty($match_params[1]) && !empty($match_values[1]))
+				{
+					foreach ($match_params[1] as $match_param_key => $match_param)
+					{
+						$data[$match_param] = $match_values[1][$match_param_key];
+					}
+					
+				}
 			}
 		}
 
@@ -1501,7 +1604,7 @@ class Spry {
  	 * @return void
 	 */
 
-	private static function send_output($output=array(), $run_filters=true)
+	private static function send_output($response=array(), $run_filters=true)
 	{
 		$default_response_headers = [
 			'Access-Control-Allow-Origin: *',
@@ -1511,23 +1614,35 @@ class Spry {
 
 		$headers = (isset(self::$config->response_headers) ? self::$config->response_headers : $default_response_headers);
 
-		$output['time'] = number_format(microtime(true) - self::$timestart, 6);
+		$output = array_merge(
+			[
+				'status' => '',
+				'code' => '',
+				'method' => self::get_method(),
+				'time' => number_format(microtime(true) - self::$timestart, 6),
+				'request_id' => 'hhhhh'.self::get_request_id(),
+				'hash' => '',
+				'messages' => '',
+				'body' => '',
+			],
+			$response
+		);
 
-		$output = ['headers' => $headers, 'body' => json_encode($output)];
+		$response = ['headers' => $headers, 'body' => json_encode($output)];
 
-		$output = self::run_filter('output', $output);
+		$response = self::run_filter('output', $response);
 
-		if(!empty($output['headers']))
+		if(!empty($response['headers']))
 		{
-			foreach ($output['headers'] as $header)
+			foreach ($response['headers'] as $header)
 			{
 				header($header);
 			}
 		}
 
-		if(!empty($output['body']))
+		if(!empty($response['body']))
 		{
-			echo $output['body'];
+			echo $response['body'];
 		}
 
 		exit;
