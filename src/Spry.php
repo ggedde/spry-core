@@ -1620,7 +1620,7 @@ class Spry {
 				'code' => '',
 				'method' => self::get_method(),
 				'time' => number_format(microtime(true) - self::$timestart, 6),
-				'request_id' => 'hhhhh'.self::get_request_id(),
+				'request_id' => self::get_request_id(),
 				'hash' => '',
 				'messages' => '',
 				'body' => '',
