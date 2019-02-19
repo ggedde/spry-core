@@ -823,7 +823,7 @@ class Spry {
 
  		if(!empty($route))
  		{
-			$route['methods'] = array_map('trim', array_map('strtoupper', (!empty($route['methods']) ? $route['methods'] : ['POST'])));
+			$route['methods'] = array_map('trim', array_map('strtoupper', (!empty($route['methods']) ? (is_string($route['methods']) ? [$route['methods']] : $route['methods']) : ['POST'])));
 
 			// If Methods are configured for route then check if method is allowed
 			if(!empty($route['methods']) && is_array($route['methods']) && !in_array(self::get_method(), $route['methods']))
