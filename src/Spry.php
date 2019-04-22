@@ -1641,9 +1641,13 @@ class Spry {
 			}
 		}
 
-		if(!empty($response['body']))
+		if(!empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS')
 		{
-			echo $response['body'];
+			echo '';
+		}
+		else if(!empty($response['body']))
+		{
+			echo preg_replace('/"([^"]+)"\s*:\s*/', '$1:', $response['body']);
 		}
 
 		exit;
