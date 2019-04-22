@@ -1609,8 +1609,9 @@ class Spry {
 	{
 		$default_response_headers = [
 			'Access-Control-Allow-Origin: *',
-			'Access-Control-Allow-Methods: GET, POST, OPTIONS',
-			'Access-Control-Allow-Headers: X-Requested-With, content-type'
+			'Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS',
+			'Access-Control-Allow-Headers: Origin, X-Requested-With, Content-Type, Accept, Authorization',
+			'Content-Type: application/json'
 		];
 
 		$headers = (isset(self::$config->response_headers) ? self::$config->response_headers : $default_response_headers);
