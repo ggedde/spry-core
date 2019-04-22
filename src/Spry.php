@@ -1647,7 +1647,7 @@ class Spry {
 		}
 		else if(!empty($response['body']))
 		{
-			echo preg_replace('/"([^"]+)"\s*:\s*/', '$1:', $response['body']);
+			echo $response['body'];
 		}
 
 		exit;
