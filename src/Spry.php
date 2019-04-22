@@ -182,6 +182,7 @@ class Spry {
 		{
 			return $method;
 		}
+		return null;
 	}
 
 	public static function configure($config_data='')
