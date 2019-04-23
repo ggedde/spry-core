@@ -509,10 +509,9 @@ class Spry {
 
 				if(!empty($param_settings['required']) && is_array($param_settings['required']))
 				{
-					reset($param_settings['required']);
-					while($required_field = each($param_settings['required']))
+					foreach($param_settings['required'] as $required_field_key => $required_field_value)
 					{
-						if(!isset($params[$required_field['key']]) || $params[$required_field['key']] !== $required_field['value'])
+						if(!isset($params[$required_field_key]) || $params[$required_field_key] !== $required_field_value)
 						{
 							$required = false;
 						}
