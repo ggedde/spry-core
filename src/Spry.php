@@ -1013,7 +1013,7 @@ class Spry {
  	 * @return void
 	 */
 
-	public static function stop($response_code=0, $data=null, $messages=[])
+	public static function stop($response_code=0, $data=null, $messages=[], $private_data=null)
 	{
 		if(!empty($messages) && (is_string($messages) || is_numeric($messages)))
 		{
@@ -1023,7 +1023,8 @@ class Spry {
 		$params = [
 			'code' => $response_code,
 			'data' => $data,
-			'messages' => $messages
+			'messages' => $messages,
+			'private_data' => $private_data
 		];
 
 		self::run_hook('stop', $params);
