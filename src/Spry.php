@@ -16,7 +16,7 @@ use stdClass;
 
 class Spry {
 
-	private static $version = "0.9.32";
+	private static $version = "0.9.33";
 	private static $routes = [];
 	private static $params = [];
 	private static $db = null;
@@ -1459,7 +1459,7 @@ class Spry {
  	 * @return array
 	 */
 
-	public static function response($response_code=0, $data=null, $messages=[])
+	public static function response($response_code=0, $data=null, $messages=[], $meta=null)
 	{
 		$response_code = strval($response_code);
 
@@ -1475,21 +1475,21 @@ class Spry {
 
 		if(strlen($response_code) > 3)
 		{
-			return self::build_response($response_code, $data, $messages);
+			return self::build_response($response_code, $data, $messages, $meta);
 		}
 
 		if(!empty($data) || $data === 0)
 		{
-			return self::build_response('2' . $response_code, $data, $messages);
+			return self::build_response('2' . $response_code, $data, $messages, $meta);
 		}
 
 		// if(empty($data) && $data !== null && $data !== 0 && (!self::$db || (self::$db && method_exists(self::$db, 'hasError') && !self::$db->hasError())))
 		if(empty($data) && $data !== null && $data !== 0)
 		{
-			return self::build_response('4' . $response_code, $data, $messages);
+			return self::build_response('4' . $response_code, $data, $messages, $meta);
 		}
 
-		return self::build_response('5' . $response_code, null, $messages);
+		return self::build_response('5' . $response_code, null, $messages, $meta);
 	}
 
 
@@ -1504,7 +1504,7 @@ class Spry {
  	 * @return array
 	 */
 
-	private static function build_response($response_code=0, $data=null, $messages=[])
+	private static function build_response($response_code=0, $data=null, $messages=[], $meta=null)
 	{
 		$response = self::response_codes($response_code);
 
@@ -1522,6 +1522,14 @@ class Spry {
 		if(!empty($messages))
 		{
 			$response['messages'] = array_merge($response['messages'], $messages);
+		}
+
+		if(!empty($meta) && is_array($meta))
+		{
+			foreach ($meta as $key => $value) 
+			{
+				$response[$key] = $value;
+			}
 		}
 
 		$response = self::run_filter('build_response', $response);
