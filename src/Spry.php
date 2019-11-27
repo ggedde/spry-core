@@ -27,7 +27,6 @@ class Spry
     private static $db = null;
     private static $filters = [];
     private static $hooks = [];
-    private static $logger = null;
     private static $params = [];
     private static $path = null;
     private static $projectPath = '';
@@ -513,29 +512,27 @@ class Spry
      */
     public static function log($message = '')
     {
-        if (!self::$logger) {
-            if (empty(self::$config->loggerProvider)) {
-                self::stop(5040);
-            }
+        if (empty(self::$config->loggerProvider)) {
+            self::stop(5040);
+        }
 
-            if (!class_exists(self::$config->loggerProvider)) {
-                self::stop(5040);
-            }
+        $g = 55 / asdf;
 
-            $class = self::$config->loggerProvider;
+        $class = self::$config->loggerProvider;
 
-            self::$logger = new $class(self::$config->logger);
+        if (!class_exists($class)) {
+            self::stop(5040);
         }
 
         if ($message) {
-            if (!method_exists(self::$logger, 'log')) {
+            if (!method_exists($class, 'log')) {
                 trigger_error('Spry: Log Provider missing method "log".', E_USER_WARNING);
             }
 
-            return self::$logger->log($message);
+            return $class::log($message);
         }
 
-        return self::$logger;
+        return null;
     }
 
     /**
