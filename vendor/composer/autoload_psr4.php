@@ -7,4 +7,5 @@ $baseDir = dirname($vendorDir);
 
 return array(
     'Spry\\' => array($baseDir . '/src'),
+    'SpryComponent\\' => array($baseDir . '/src'),
 );

@@ -10,6 +10,7 @@ class ComposerStaticInit8cc2bf99c5d6101a19b6e7fd3180fb37
         'S' => 
         array (
             'Spry\\' => 5,
+            'SpryComponent\\' => 14,
         ),
     );
 
@@ -18,10 +19,10 @@ class ComposerStaticInit8cc2bf99c5d6101a19b6e7fd3180fb37
         array (
             0 => __DIR__ . '/../..' . '/src',
         ),
-    );
-
-    public static $classMap = array (
-        'Spry\\Spry' => __DIR__ . '/../..' . '/src/Spry.php',
+        'SpryComponent\\' => 
+        array (
+            0 => __DIR__ . '/../..' . '/src',
+        ),
     );
 
     public static function getInitializer(ClassLoader $loader)
@@ -29,7 +30,6 @@ class ComposerStaticInit8cc2bf99c5d6101a19b6e7fd3180fb37
         return \Closure::bind(function () use ($loader) {
             $loader->prefixLengthsPsr4 = ComposerStaticInit8cc2bf99c5d6101a19b6e7fd3180fb37::$prefixLengthsPsr4;
             $loader->prefixDirsPsr4 = ComposerStaticInit8cc2bf99c5d6101a19b6e7fd3180fb37::$prefixDirsPsr4;
-            $loader->classMap = ComposerStaticInit8cc2bf99c5d6101a19b6e7fd3180fb37::$classMap;
 
         }, null, ClassLoader::class);
     }

@@ -1,10 +1,15 @@
 <?php
 
+/**
+ * @license MIT
+ * @license https://opensource.org/licenses/MIT
+ */
+
 namespace Spry;
 
 use stdClass;
 
-/*!
+/**
  *
  * Spry Framework
  * https://github.com/ggedde/spry
@@ -13,1652 +18,1695 @@ use stdClass;
  * Released under the MIT license
  *
  */
-
-class Spry {
-
-	private static $version = "0.9.33";
-	private static $routes = [];
-	private static $params = [];
-	private static $db = null;
-	private static $log = null;
-	private static $path = null;
-	private static $route = null;
-	private static $validator;
-	private static $auth;
-	private static $config;
-	private static $config_file = '';
-	private static $timestart;
-	private static $cli = false;
-	private static $test = false;
-	private static $request_id = '';
-
-	/**
-	 * Initiates the API Call.
-	 *
-	 * @param string $config_file
- 	 *
- 	 * @access 'public'
- 	 * @return void
-	 */
-
-	public static function run($args=[])
-	{
-		self::$timestart = microtime(true);
-		self::$request_id = md5(uniqid('', true));
-
-		if($args && is_string($args))
-		{
-			if(file_exists($args))
-			{
-				$args = ['config' => $args];
-			}
-			else
-			{
-				// Check if it is not Json and if so then base64_decode it.
-				if(!preg_match('/[\"\[\{]+/', $args))
-				{
-					$args = base64_decode($args);
-				}
-
-				$args = json_decode($args, true );
-			}
-
-			if(empty($args) || !is_array($args))
-			{
-				$response_codes = self::get_core_response_codes();
-
-				// Logger may not be setup so trigger php notice
-				trigger_error('Spry ERROR: '.$response_codes[5003]['en']);
-
-				self::stop(5003, null, $response_codes[5003]['en']);
-			}
-		}
-
-		// Set Defaults
-		$args = array_merge([
-            'config' => '',
-            'path' => '',
-            'controller' => '',
-            'params' => null,
-        ], $args);
-
-		if(empty($args['config']) || (is_string($args['config']) && !file_exists($args['config'])))
-		{
-			$response_codes = self::get_core_response_codes();
-
-			// Logger may not be setup so trigger php notice
-			trigger_error('Spry ERROR: '.$response_codes[5001]['en']);
-
-			self::stop(5001, null, $response_codes[5001]['en']);
-		}
-
-		self::$cli = self::is_cli();
-
-		// Setup Config Data Autoloader and Configure Filters
-		self::configure($args['config']);
-
-		if(empty(self::$config->salt))
-		{
-			$response_codes = self::get_core_response_codes();
-
-			// Logger may not be setup so trigger php notice
-			trigger_error('Spry: '.$response_codes[5002]['en']);
-
-			self::stop(5002, null, $response_codes[5002]['en']);
-		}
-
-		// Configure Hook
-		self::run_hook('configure');
-
-		// Return Data Immediately if is a PreFlight OPTIONS Request
-		if(!empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS')
-		{
-			self::send_output();
-		}
-
-		self::$path = (!empty($args['path']) ? $args['path'] : self::get_path());
-
-		// Set Path Hook
-		self::run_hook('set_path');
-
-		self::set_routes();
-
-		self::set_params(self::fetch_params($args['params']));
-
-		// IF Test Data then set currnt transaction as Test
-		if(!empty(self::$params['test_data'])) self::$test = true;
-
-		if($args['controller'])
-		{
-			$controller = self::get_controller($args['controller']);
-		}
-		else
-		{
-			self::$route = self::get_route(self::$path);
-			$controller = self::get_controller(self::$route['controller']);
-		}
-
-		if(self::$cli)
-		{
-			$response = self::get_response($controller, self::$params);
-		}
-		else
-		{
-			$response = self::get_response($controller, self::validate_params());
-		}
-
-		self::send_response($response);
-	}
-
-	public static function is_cli()
-	{
-		return (php_sapi_name() === 'cli' || (!empty($_SERVER['argc']) && is_numeric($_SERVER['argc']) && $_SERVER['argc'] > 0));
-	}
-
-	public static function is_test()
-	{
-		return self::$test;
-	}
-
-	public static function get_version()
-	{
-		return self::$version;
-	}
-
-	public static function get_config_file()
-	{
-		return self::$config_file;
-	}
-	
-	public static function get_request_id()
-	{
-		return self::$request_id;
-	}
-
-	public static function get_method()
-	{
-		$method = strtoupper(trim(!empty($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'POST'));
-		if(in_array($method, ['POST', 'GET', 'PUT', 'DELETE']))
-		{
-			return $method;
-		}
-		return null;
-	}
-
-	public static function configure($config_data='')
-	{
-		if(empty(self::$request_id))
-		{
-			self::$request_id = md5(uniqid('', true));
-		}
-
-		if(!empty(self::$config))
-		{
-			return false;
-		}
-
-		if(is_object($config_data))
-		{
-			$config = $config_data;
-		}
-		else
-		{
-			$config = new stdClass();
-			$config->hooks = new stdClass();
-			$config->filters = new stdClass();
-			$config->db = new stdClass();
-
-			require($config_data);
-			self::$config_file = $config_data;
-		}
-
-		$config->response_codes = array_replace(self::get_core_response_codes(), (!empty($config->response_codes) ? $config->response_codes : []));
-		self::$config = $config;
-
-		// Set AutoLoaders for Components, Providers and Plugins
-		spl_autoload_register(array(__CLASS__, 'autoloader'));
-
-		// Configure Filter
-		self::$config = self::run_filter('configure', self::$config);
-	}
-
-	private static function get_core_response_codes()
-	{
-		return [
-			2000 => ['en' => 'Success!'],
-			4000 => ['en' => 'No Results'],
-			5000 => ['en' => 'Error: Unknown Error'],
-			5001 => ['en' => 'Error: Missing Config File'],
-			5002 => ['en' => 'Error: Missing Salt in Config File'],
-			5003 => ['en' => 'Error: Unknown configuration error on run'],
-
-			5011 => ['en' => 'Error: Route Not Found.'],
-			5012 => ['en' => 'Error: Class Not Found.'],
-			5013 => ['en' => 'Error: Class Method Not Found.'],
-			5014 => ['en' => 'Error: Returned Data is not in JSON format.'],
-			5015 => ['en' => 'Error: Class Method is not Callable. Make sure it is Public.'],
-			5016 => ['en' => 'Error: Controller Not Found.'],
-			5017 => ['en' => 'Error: Method not allowed by Route.'],
-
-			5020 => ['en' => 'Error: Field did not Validate.'],
-
-			/* DB */
-			2030 => ['en' => 'Database Migrate Ran Successfully'],
-			5030 => ['en' => 'Error: Database Migrate had an Error'],
-			5031 => ['en' => 'Error: Database Connect Error.'],
-			5032 => ['en' => 'Error: Missing Database Credentials from config.'],
-			5033 => ['en' => 'Error: Database Provider not found.'],
-
-			/* Log */
-			5040 => ['en' => 'Error: Log Provider not found.'],
-
-			/* Tests */
-			2050 => ['en' => 'Test Passed Successfully'],
-			5050 => ['en' => 'Error: Test Failed'],
-			5051 => ['en' => 'Error: Retrieving Tests'],
-			5052 => ['en' => 'Error: No Tests Configured'],
-			5053 => ['en' => 'Error: No Test with that name Configured'],
-
-			/* Background Process */
-			5060 => ['en' => 'Error: Background Process did not return Process ID'],
-			5061 => ['en' => 'Error: Background Process could not find autoload'],
-			5062 => ['en' => 'Error: Unknown response from Background Process'],
-
-		];
-	}
-
-
-
-	/**
-	 * Adds all the Routes to allow.
- 	 *
- 	 * @access 'private'
- 	 * @return void
-	 */
-
-	private static function set_routes()
-	{
-		foreach(self::$config->routes as $route_path => $route)
-		{
-			if(!empty($route) && (!isset($route['active']) || !empty($route['active'])))
-			{
-				self::add_route($route_path, $route);
-			}
-		}
-
-		// Route Hooks
-		self::run_hook('set_routes');
-	}
-
-
-
-	/**
-	 * Gets the response Type.
- 	 *
- 	 * @access 'private'
- 	 * @return string
-	 */
-
-	private static function response_type($code='')
-	{
-		if(!empty($code) && is_numeric($code))
-		{
-			switch (substr($code, 0, 1))
-			{
-				case 2:
-				case 4:
-					return 'success';
-
-				break;
-
-
-				case 5:
-					return 'error';
-
-				break;
-
-			}
-		}
-
-		return 'unknown';
-	}
-
-
-
-	/**
-	 * Sets all the response Codes available for the App.
- 	 *
- 	 * @access 'private'
- 	 * @return array
-	 */
-
-	private static function response_codes($code=0)
-	{
-		$lang = 'en';
-		$type = 4;
-
-		if(self::params('lang'))
-		{
-			$lang = self::params('lang');
-		}
-
-		if(strlen($code))
-		{
-			$type = substr($code, 0, 1);
-		}
-
-		if(isset(self::$config->response_codes[$code][$lang]))
-		{
-			$response = self::$config->response_codes[$code][$lang];
-		}
-		else if(isset(self::$config->response_codes[$code]['en']))
-		{
-			$response = self::$config->response_codes[$code]['en'];
-		}
-		else if(isset(self::$config->response_codes[$code]) && is_string(self::$config->response_codes[$code]))
-		{
-			$response = self::$config->response_codes[$code];
-		}
-		else if($type === 4 && isset(self::$config->response_codes[4000][$lang]))
-		{
-			$code = 4000;
-			$response = self::$config->response_codes[$code][$lang];
-		}
-		else if($type === 4 && isset(self::$config->response_codes[4000]['en']))
-		{
-			$code = 4000;
-			$response = self::$config->response_codes[$code]['en'];
-		}
-		else if($type === 4 && isset(self::$config->response_codes[4000]) && is_string(self::$config->response_codes[4000]))
-		{
-			$code = 4000;
-			$response = self::$config->response_codes[$code];
-		}
-
-		if(!empty($response))
-		{
-			return ['status' => self::response_type($code), 'code' => (int) $code, 'messages' => [$response]];
-		}
-
-		return ['status' => 'unknown', 'code' => $code, 'messages' => ['Unkown Response Code']];
-	}
-
-
-
-	/**
-	 * Adds a route to the allowed list.
- 	 *
- 	 * @param string $path
- 	 * @param string $controller
- 	 *
- 	 * @access 'private'
- 	 * @return void
-	 */
-
-	private static function add_route($path, $route)
-	{
-		$path = self::clean_path($path);
-
-		if(!is_array($route))
-		{
-			$route = [
-				'label' => ucwords(preg_replace('/\W|_/', ' ', $path)),
-				'controller' => $route
-			];
-		}
-
-		$route = array_merge([
-			'controller' => '',
-			'active' => true,
-			'public' => true,
-			'label' => '',
-			'params' => [],
-		], $route);
-
-		self::$routes[$path] = $route;
-	}
-
-
-
-	/**
-	 * Adds a route to the allowed list.
- 	 *
- 	 * @param string $path
- 	 * @param string $controller
- 	 *
- 	 * @access 'private'
- 	 * @return void
-	 */
-
-	public static function validate_params($path=null, $params=null, $args=null)
-	{
-		if(!empty($path))
-		{
-			$route = self::get_route($path);
-		}
-
-		if(empty($route))
-		{
-			$route = (self::$route ? self::$route : self::get_route());
-		}
-
-		if(is_null($params))
-		{
-			$params = self::params();
-		}
-
-		if(empty($route['params']))
-		{
-			$new_params = $params;
-		}
-		else
-		{
-			$new_params = [];
-
-			if(!empty($params['test_data']))
-			{
-				$new_params['test_data'] = $params['test_data'];
-			}
-
-			$message_fields = [
-				'required',
-				'minlength',
-				'maxlength',
-				'length',
-				'betweenlength',
-				'min',
-				'max',
-				'between',
-				'matches',
-				'notmatches',
-				'startswith',
-				'notstartswith',
-				'endswith',
-				'notendswith',
-				'array',
-				'int',
-				'integer',
-				'number',
-				'float',
-				'digits',
-				'ccnum',
-				'ip',
-				'email',
-				'date',
-				'mindate',
-				'maxdate',
-				'url',
-				'oneof',
-				'callback',
-			];
-
-			foreach($route['params'] as $param_key => $param_settings)
-			{
-				if(is_int($param_key) && $param_settings && is_string($param_settings))
-				{
-					$param_key = $param_settings;
-					$param_settings = [];
-				}
-
-				if(!isset($param_settings['trim']) && !empty($route['params_trim']))
-				{
-					$param_settings['trim'] = true;
-				}
-
-				$required = (empty($param_settings['required']) ? false : true);
-
-				if(!empty($param_settings['required']) && is_array($param_settings['required']))
-				{
-					foreach($param_settings['required'] as $required_field_key => $required_field_value)
-					{
-						if(!isset($params[$required_field_key]) || $params[$required_field_key] !== $required_field_value)
-						{
-							$required = false;
-						}
-					}
-				}
-
-				// Skip if not Required or Param is not present
-				if(empty($required) && !isset($params[$param_key]))
-				{
-					continue;
-				}
-
-				// Set Default
-				if(!isset($params[$param_key]) && isset($param_settings['default']))
-				{
-					$params[$param_key] = $param_settings['default'];
-				}
-
-				$messages = [];
-
-				foreach ($message_fields as $field)
-				{
-					$messages[$field] = (!empty($param_settings['messages'][$field]) ? $param_settings['messages'][$field] : null);
-				}
-
-				// Construct Validator
-				$validator = self::validator($params);
-
-				if($required)
-				{
-					$validator->required($messages['required']);
-				}
-
-				if(isset($param_settings['minlength']))
-				{
-					$validator->minLength($param_settings['minlength'], $messages['minlength']);
-				}
-
-				if(isset($param_settings['maxlength']))
-				{
-					$validator->maxLength($param_settings['maxlength'], $messages['maxlength']);
-				}
-
-				if(isset($param_settings['length']))
-				{
-					$validator->length($param_settings['length'], $messages['length']);
-				}
-
-				if(isset($param_settings['min']))
-				{
-					$validator->min($param_settings['min'], true, $messages['min']);
-				}
-
-				if(isset($param_settings['max']))
-				{
-					$validator->max($param_settings['max'], true, $messages['max']);
-				}
-
-				if(isset($param_settings['between']))
-				{
-					$validator->between(
-						$param_settings['between'][0],
-						$param_settings['between'][1],
-						true,
-						$messages['between']
-					);
-				}
-
-				if(isset($param_settings['betweenlength']))
-				{
-					$validator->betweenlength(
-						$param_settings['betweenlength'][0],
-						$param_settings['betweenlength'][1],
-						$messages['betweenlength']
-					);
-				}
-
-				if(isset($param_settings['matches']))
-				{
-					$validator->matches(
-						$param_settings['matches'],
-						ucwords($param_settings['matches']),
-						$messages['matches']
-					);
-				}
-
-				if(isset($param_settings['notmatches']))
-				{
-					$validator->notmatches(
-						$param_settings['notmatches'],
-						ucwords($param_settings['notmatches']),
-						$messages['notmatches']
-					);
-				}
-
-				if(isset($param_settings['startswith']))
-				{
-					$validator->startsWith($param_settings['startswith'], $messages['startswith']);
-				}
-
-				if(isset($param_settings['notstartswith']))
-				{
-					$validator->notstartsWith($param_settings['notstartswith'], $messages['notstartswith']);
-				}
-
-				if(isset($param_settings['endswith']))
-				{
-					$validator->endsWith($param_settings['endswith'], $messages['endswith']);
-				}
-
-				if(isset($param_settings['notendswith']))
-				{
-					$validator->notendsWith($param_settings['notendswith'], $messages['notendswith']);
-				}
-
-				if(isset($param_settings['array']))
-				{
-					$validator->isarray($messages['array']);
-				}
-
-				if(isset($param_settings['integer']))
-				{
-					$validator->integer($messages['integer']);
-				}
-
-				// Alias of Integer
-				if(isset($param_settings['int']))
-				{
-					$validator->integer($messages['int']);
-				}
-
-				if(isset($param_settings['float']))
-				{
-					$validator->float($messages['float']);
-				}
-
-				// Alias of Float
-				if(isset($param_settings['number']))
-				{
-					$validator->float($messages['number']);
-				}
-
-				// Alias of Float
-				if(isset($param_settings['num']))
-				{
-					$validator->float($messages['num']);
-				}
-
-				if(isset($param_settings['digits']))
-				{
-					$validator->digits($messages['digits']);
-				}
-
-				if(isset($param_settings['ccnum']))
-				{
-					$validator->ccnum($messages['ccnum']);
-				}
-
-				if(isset($param_settings['email']))
-				{
-					$validator->email($messages['email']);
-				}
-
-				if(isset($param_settings['date']))
-				{
-					$validator->date($messages['date']);
-				}
-
-				if(isset($param_settings['mindate']))
-				{
-					$validator->minDate($param_settings['mindate'], null, $messages['mindate']);
-				}
-
-				if(isset($param_settings['maxdate']))
-				{
-					$validator->maxDate($param_settings['maxdate'], null, $messages['maxdate']);
-				}
-
-				if(isset($param_settings['url']))
-				{
-					$validator->url($messages['url']);
-				}
-
-				if(isset($param_settings['ip']))
-				{
-					$validator->ip($messages['ip']);
-				}
-
-				if(isset($param_settings['oneof']))
-				{
-					$validator->oneOf($param_settings['oneof'], $messages['oneof']);
-				}
-
-				if(isset($param_settings['callback']))
-				{
-					$validator->callback($param_settings['callback'], $messages['callback']);
-				}
-
-				if(isset($param_settings['filter']))
-				{
-					$validator->filter($param_settings['filter']);
-				}
-
-				if(!empty($param_settings['validateonly']))
-				{
-					$validator->validate($param_key);
-				}
-				else
-				{
-					$new_params[$param_key] = $validator->validate($param_key);
-
-					if(is_array($new_params[$param_key]) || is_object($new_params[$param_key]))
-					{
-						if(!empty($param_settings['trim']))
-						{
-							$new_params[$param_key] = array_values(array_filter(array_map('trim', $new_params[$param_key])));
-						}
-
-						if(!empty($param_settings['unique']))
-						{
-							$new_params[$param_key] = array_values(array_unique($new_params[$param_key]));
-						}
-					}
-					else
-					{
-						if(!empty($param_settings['trim']))
-						{
-							$new_params[$param_key] = trim($new_params[$param_key]);
-						}
-					}
-				}
-			}
-		}
-
-		$new_params = self::run_filter('validate_params', $new_params);
-
-		return $new_params;
-	}
-
-
-	/**
-	 * Returns the Route including path and attached controller.
- 	 *
- 	 * @param string $path
- 	 *
- 	 * @access 'public'
- 	 * @return array
-	 */
-
-	public static function get_route($path=null)
- 	{
- 		if(!$path)
- 		{
- 			$path = self::$path;
- 		}
-
- 		$path = self::clean_path($path);
-
- 		if(!empty($path))
- 		{
- 			if(empty(self::$routes[$path]['controller']))
- 			{
-				foreach(self::$routes as $route_url => $route) 
-				{
-					if(is_string($route))
-					{
-						$route_url = $route;
-					}
-	
-					$route_reg = '/'.str_replace('/', '\\/', preg_replace('/\{[^\}]+\}/', '(.*)', $route_url)).'/';
-	
-					if(preg_match($route_reg, $path))
-					{
-						$path = $route_url;
-						break;
-					}
-				}
-			}
-
-			if(empty(self::$routes[$path]['controller']))
-			{
-				foreach(self::$routes as $route_url => $route) 
-				{
-					if(is_string($route))
-					{
-						$route_url = $route;
-					}
-
-					if(strpos($route_url, '{') !== false && strpos($route_url, '}'))
-					{
-						$stripped_path = preg_replace('/\{[^\}]+\}\/?/', '', $route_url);
-	
-						if($stripped_path === $path)
-						{
-							$path = $route_url;
-							break;
-						}
-					}
-				}
-			}
-			
-			if(empty(self::$routes[$path]['controller']))
-			{
-				self::stop(5011);
-			}
-
-			$route = self::$routes[$path];
- 		}
-
- 		if(!empty($route))
- 		{
-			$route['methods'] = array_map('trim', array_map('strtoupper', (!empty($route['methods']) ? (is_string($route['methods']) ? [$route['methods']] : $route['methods']) : ['POST'])));
-
-			// If Methods are configured for route then check if method is allowed
-			if(!empty($route['methods']) && is_array($route['methods']) && !in_array(self::get_method(), $route['methods']))
-			{
-				self::stop(5017, $_POST); // Methoed not allowed
-			}
-
-			$route = self::run_filter('get_route', $route);
- 			return $route;
- 		}
-
- 		self::stop(5011); // Request Not Found
- 	}
-
-
-	/**
-	 * Returns the public Routes available.
- 	 *
- 	 * @access 'public'
- 	 * @return array
-	 */
-
-	public static function get_routes()
-	{
-		$public_routes = [];
-
-		if(!empty(self::$routes))
-		{
-			foreach (self::$routes as $route_path => $route)
-			{
-				if(!isset($route['public']) || !empty($route['public']))
-				{
-					$public_routes[$route_path] = $route;
-				}
-			}
-		}
-
-		return $public_routes;
-	}
-
-
-
-	/**
-	 * Sets the Autoloader for the Extra Classed needed for the API.
- 	 *
- 	 * @access 'public'
- 	 * @return void
-	 */
-
-	public static function autoloader($class)
-	{
-		$autoloader_directories = [];
-
-		if(!empty(self::$config->components_dir))
-		{
-			$autoloader_directories[] = self::$config->components_dir;
-		}
-
-		if(!empty($autoloader_directories))
-		{
-			foreach($autoloader_directories as $dir)
-			{
-				foreach(glob(rtrim($dir, '/') . '/*')  as $file)
-				{
-					if(strtolower(basename(str_replace('\\', '/', $class))).'.php' === strtolower(basename($file)))
-					{
-						require_once $file;
-						return;
-					}
-				}
-			}
-		}
-	}
-
-
-	/**
-	 * Returns DB Provider.
- 	 *
- 	 * @access 'public'
- 	 * @return object
-	 */
-
-	public static function db()
-	{
-		if(!self::$db)
-		{
-			if(empty(self::$config->db['username']) || empty(self::$config->db['database_name']))
-			{
-				self::stop(5032);
-			}
-
-			if(empty(self::$config->db['provider']) || !class_exists(self::$config->db['provider']))
-			{
-				self::stop(5033);
-			}
-
-			$class = self::$config->db['provider'];
-
-			self::$db = new $class(self::$config->db);
-
-			// Database Hooks
-			self::run_hook('database');
-		}
-
-		return self::$db;
-	}
-
-
-
-	/**
-	 * Returns Logger Provider.
- 	 *
- 	 * @access 'public'
- 	 * @return object
-	 */
-
-	public static function log($message='')
-	{
-		if(!self::$log)
-		{
-			if(empty(self::$config->logger))
-			{
-				self::stop(5040);
-			}
-
-			if(!class_exists(self::$config->logger))
-			{
-				self::stop(5040);
-			}
-
-			$class = self::$config->logger;
-
-			self::$log = new $class();
-		}
-
-		if($message)
-		{
-			if(method_exists(self::$log,'log'))
-			{
-				return self::$log->log($message);
-			}
-			else
-			{
-				trigger_error('Spry: Log Provider missing method "log".', E_USER_WARNING);
-			}
-		}
-
-		return self::$log;
-	}
-
-
-	/**
-	 * Returns Validator Extension.
- 	 *
- 	 * @access 'public'
- 	 * @return object
-	 */
-
-	public static function validator($params=null)
-	{
-		if(is_null($params))
-		{
-			$params = self::$params;
-		}
-
-		if(empty(self::$validator))
-		{
-			self::$validator = new SpryProvider\SpryValidator($params);
-		}
-		else
-		{
-			self::$validator->setData($params);
-		}
-
-		return self::$validator;
-	}
-
-
-
-	/**
-	 * Kills the Request and returns immediate error.
- 	 *
- 	 * @param int $response_code
- 	 * @param mixed $data
- 	 *
- 	 * @access 'public'
- 	 * @return void
-	 */
-
-	public static function stop($response_code=0, $data=null, $messages=[], $private_data=null)
-	{
-		if(!empty($messages) && (is_string($messages) || is_numeric($messages)))
-		{
-			$messages = [$messages];
-		}
-
-		$params = [
-			'code' => $response_code,
-			'data' => $data,
-			'messages' => $messages,
-			'private_data' => $private_data
-		];
-
-		self::run_hook('stop', $params);
-
-		$response = self::build_response($response_code, $data, $messages);
-
-		self::send_response($response);
-	}
-
-
-
-	/**
-	 * Sets the Auth object.
- 	 *
- 	 * @access 'public'
- 	 * @return object
-	 */
-
-	public static function set_auth($object)
-	{
-		self::$auth = $object;
-	}
-
-
-
-	/**
-	 * Returns the Auth object.
- 	 *
- 	 * @access 'public'
- 	 * @return object
-	 */
-
-	public static function auth()
-	{
-		return self::$auth;
-	}
-
-
-
-	/**
-	 * Returns the Config Parameters from the Singleton Class.
- 	 *
- 	 * @access 'public'
- 	 * @return object
-	 */
-
-	public static function config()
-	{
-		return self::$config;
-	}
-
-
-
-	/**
-	 * Gets the Data sent in the API Call and converts it to Parameters.
-	 * Then returns the converted Parameters as array.
-	 * Throughs stop() on failure.
- 	 *
- 	 * @access 'private'
- 	 * @return array
-	 */
-
-	private static function fetch_params($params=null)
-	{
-		if(!is_null($params))
-		{
-			$data = $params;
-		}
-		else
-		{
-			$data = trim(file_get_contents('php://input'));
-
-			if(empty($data) && self::$cli)
-			{
-				$data = trim(file_get_contents('php://stdin'));
-			}
-
-			if(empty($data) && self::get_method() === 'GET' && !empty($_GET))
-			{
-				$data = $_GET;
-			}
-
-			if(empty($data) && self::get_method() === 'POST' && !empty($_POST))
-			{
-				$data = $_POST;
-			}
-
-			foreach(self::$routes as $route_url => $route) 
-			{	
-				if(is_string($route))
-				{
-					$route_url = $route;
-				}
-
-				$route_reg = '/'.str_replace('/', '\\/', preg_replace('/\{[^\}]+\}/', '(.*)', $route_url)).'/';
-
-				preg_match_all('/\{([^\}]+)\}/', $route_url, $match_params);
-				preg_match_all($route_reg, self::$path, $match_values);
-
-				if(preg_match($route_reg, self::$path) && !empty($match_params[1]) && !empty($match_values[1]))
-				{
-					foreach ($match_params[1] as $match_param_key => $match_param)
-					{
-						$data[$match_param] = $match_values[1][$match_param_key];
-					}
-					
-				}
-			}
-		}
-
-		if($data && is_string($data))
-		{
-			if(in_array(substr($data, 0, 1), ['[','{']))
-			{
-				$data = json_decode($data, true);
-			}
-			else
-			{
-				# TODO
-				echo '<pre>';print_r($data);echo '</pre>';
-				exit;
-			}
-		}
-
-		if(!empty($data))
-		{
-			$data = self::run_filter('params', $data);
-		}
-
-		if(!empty($data) && !is_array($data))
-		{
-			self::stop(5014); // Returned Data is not in JSON format
-		}
-
-		return $data;
-	}
-
-
-
-
-	/**
-	 * Gets the Data sent in the API Call and converts it to Parameters.
-	 * Then returns the converted Parameters as array.
-	 * Throughs stop() on failure.
- 	 *
- 	 * @access 'public'
- 	 * @return array
-	 */
-
-	public static function params($param='')
-	{
-		if($param)
-		{
-			// Check for Multi-Demension Parameter
-			if(strpos($param, '.'))
-			{
-				$nested_param = self::$params;
-				$param_items = explode('.', $param);
-				foreach ($param_items as $param_items_key => $param_item)
-				{
-					if($nested_param !== null && isset($nested_param[$param_item]))
-					{
-						$nested_param = $nested_param[$param_item];
-					}
-					else
-					{
-						$nested_param = null;
-					}
-				}
-
-				return $nested_param;
-			}
-
-			if(isset(self::$params[$param]))
-			{
-				return self::$params[$param];
-			}
-
-			return null;
-		}
-
-		return self::$params;
-	}
-
-
-
-
-	/**
-	 * Sets the Param Data
- 	 *
- 	 * @access 'public'
- 	 * @return bool
-	 */
-
-	public static function set_params($params=[])
-	{
-		if(!empty($params))
-		{
-			self::$params = array_merge(self::$params, $params);
-		}
-
-		if(is_array(self::$params))
-		{
-			self::$params = self::run_filter('params', self::$params);
-		}
-
-		// Set Param Hooks
-		self::run_hook('set_params');
-
-		return true;
-	}
-
-
-
-	/**
-	 * Gets the URL Path of the current API Call.
- 	 *
- 	 * @access 'public'
- 	 * @return string
-	 */
-
-	public static function get_path()
-	{
-		$path = '';
-
-		if(isset($_SERVER['REQUEST_URI']))
-		{
-			$path = explode('?', strtolower($_SERVER['REQUEST_URI']), 2);
-			$path = self::clean_path($path[0]);
-		}
-		else if(isset($_SERVER['SCRIPT_FILENAME']) && strpos($_SERVER['SCRIPT_FILENAME'], 'SpryCli.php'))
-		{
-			$path = '::spry_cli';
-		}
-		else if(self::$cli)
-		{
-			$path = '::cli';
-		}
-
-		$path = self::run_filter('get_path', $path);
-		return $path;
-	}
-
-
-
-	/**
-	 * Cleans the Path given to a specified format.
- 	 *
- 	 * @access 'private'
- 	 * @return string
-	 */
-
-	private static function clean_path($path)
-	{
-		return '/'.trim($path, " \t\n\r\0\x0B\/").'/';
-	}
-
-
-
-	/**
-	 * Returns the Controller Object and Method by name.
-	 * Throughs stop() on failure.
-	 *
-	 * @param string $controller
- 	 *
- 	 * @access 'private'
- 	 * @return array
-	 */
-
-	private static function get_controller($controller='')
- 	{
- 		if(!empty($controller))
- 		{
-			if(!is_string($controller) && is_callable($controller))
-			{
-				return ['function' => $controller, 'class' => null, 'method' => null];
-			}
-
- 			$response_codes = self::get_core_response_codes();
-
- 			list($class, $method) = explode('::', $controller);
-
- 			$paths = [
- 				'',
- 				'Spry\\SpryComponent\\'
- 			];
-
- 			foreach($paths as $path)
- 			{
- 				if(class_exists($path.$class))
- 				{
- 					if(method_exists($path.$class, $method))
- 					{
- 						return ['class' => $path.$class, 'method' => $method];
- 					}
-
- 					// No Method for that Class
- 					self::send_output(['status' => 'error', 'code' => 5013, 'messages' => [$response_codes[5013]['en'], $path.$class.'::'.$method]], false);
- 				}
- 			}
-
- 			// No Classes Found
- 			self::send_output(['status' => 'error', 'code' => 5012, 'messages' => [$response_codes[5012]['en'], $class]], false);
- 		}
-
- 		// No Controller
- 		self::send_output(['status' => 'error', 'code' => 5016, 'messages' => [$response_codes[5016]['en'], $controller]], false);
- 	}
-
-
-
-	/**
-	 * Determines whether a Controller Exists.
-	 *
-	 * @param string $controller
- 	 *
- 	 * @access 'public'
- 	 * @return boolean
-	 */
-
-	public static function controller_exists($controller='')
-	{
-		if(!empty($controller))
-		{
-			list($class, $method) = explode('::', $controller);
-
-			if(class_exists($class))
-			{
-				if(method_exists($class, $method))
-				{
-					return true;
-				}
-			}
-			else if(class_exists('Spry\\SpryComponent\\'.$class))
-			{
-				if(method_exists('Spry\\SpryComponent\\'.$class, $method))
-				{
-					return true;
-				}
-			}
-		}
-
-		return false;
-	}
-
-
-
-	/**
-	 * Return just the body of the request is successfull.
-	 *
- 	 * @param string $result
- 	 *
- 	 * @access 'public'
- 	 * @return mixed
-	 */
-
-	public static function get_body($result)
-	{
-		if(!empty($result['status']) && $result['status'] === 'success' && isset($result['body']))
-		{
-			return $result['body'];
-		}
-
-		return null;
-	}
-
-
-	public static function run_filter($filter_key=null, $data=null)
-	{
-		if(!empty(self::$config->filters->$filter_key) && is_array(self::$config->filters->$filter_key))
-		{
-			foreach(self::$config->filters->$filter_key as $filter => $filter_data)
-			{
-				if(is_int($filter))
-				{
-					$filter = $filter_data;
-					$data = self::get_response(self::get_controller($filter), $data);
-				}
-				else
-				{
-					$data = self::get_response(self::get_controller($filter), $data, $filter_data);
-				}
-
-			}
-		}
-
-		return $data;
-	}
-
-
-	public static function run_hook($hook_key=null, $data=null)
-	{
-		if(!empty(self::$config->hooks->$hook_key) && is_array(self::$config->hooks->$hook_key))
-		{
-			foreach(self::$config->hooks->$hook_key as $hook => $hook_data)
-			{
-				if(is_int($hook))
-				{
-					$hook = $hook_data;
-				}
-
-				// Skip Get Controller if Contrller not exists only for STOP
-				// As it could cause a seg fault loop
-				if($hook_key === 'stop' && !self::controller_exists($hook))
-				{
-					$response = self::build_response(5016, null, $hook);
-					self::send_response($response);
-					exit;
-				}
-
-				if($hook === $hook_data)
-				{
-					self::get_response(self::get_controller($hook), $data);
-				}
-				else
-				{
-					self::get_response(self::get_controller($hook), $data, $hook_data);
-				}
-			}
-		}
-	}
-
-
-
-	/**
-	 * Formats the Results given by a Controller method.
-	 *
-	 * @param int $response_code
-	 * @param mixed $data
- 	 *
- 	 * @access 'public'
- 	 * @return array
-	 */
-
-	public static function response($response_code=0, $data=null, $messages=[], $meta=null)
-	{
-		$response_code = strval($response_code);
-
-		if(strlen($response_code) < 2)
-		{
-			$response_code = '00'.$response_code;
-		}
-
-		if(strlen($response_code) < 3)
-		{
-			$response_code = '0'.$response_code;
-		}
-
-		if(strlen($response_code) > 3)
-		{
-			return self::build_response($response_code, $data, $messages, $meta);
-		}
-
-		if(!empty($data) || $data === 0)
-		{
-			return self::build_response('2' . $response_code, $data, $messages, $meta);
-		}
-
-		// if(empty($data) && $data !== null && $data !== 0 && (!self::$db || (self::$db && method_exists(self::$db, 'hasError') && !self::$db->hasError())))
-		if(empty($data) && $data !== null && $data !== 0)
-		{
-			return self::build_response('4' . $response_code, $data, $messages, $meta);
-		}
-
-		return self::build_response('5' . $response_code, null, $messages, $meta);
-	}
-
-
-
-	/**
-	 * Formats the Response before given to the Output Method
-	 *
-	 * @param int $response_code
-	 * @param mixed $data
- 	 *
- 	 * @access 'private'
- 	 * @return array
-	 */
-
-	private static function build_response($response_code=0, $data=null, $messages=[], $meta=null)
-	{
-		$response = self::response_codes($response_code);
-
-		if($data !== null)
-		{
-			$response['hash'] = md5($response_code.serialize($data));
-			$response['body'] = $data;
-		}
-
-		if(!empty($messages) && (is_string($messages) || is_numeric($messages)))
-		{
-			$messages = [$messages];
-		}
-
-		if(!empty($messages))
-		{
-			$response['messages'] = array_merge($response['messages'], $messages);
-		}
-
-		if(!empty($meta) && is_array($meta))
-		{
-			foreach ($meta as $key => $value) 
-			{
-				$response[$key] = $value;
-			}
-		}
-
-		$response = self::run_filter('build_response', $response);
-
-		return $response;
-	}
-
-
-
-	/**
-	 * Returns the Response from a given Controller method
-	 *
-	 * @param array $controller
-	 * @param null $params			Params as Filtered items or from hook
-	 * @param array $options		Options sent from Filter or Hook
- 	 *
- 	 * @access 'private'
- 	 * @return mixed
-	 */
-
-	private static function get_response($controller=array(), $params=null, $options=null)
-	{
-		if(isset($controller['function']) && is_callable($controller['function']))
-		{
-			if($options)
-			return call_user_func($controller['function'], $params, $options);
-
-			if($params)
-			return call_user_func($controller['function'], $params);
-
-			return call_user_func($controller['function']);
-		}
-
-		if(!is_callable(array($controller['class'], $controller['method'])))
-		{
-			self::stop(5015, null, $controller['class'].'::'.$controller['method']);
-		}
-
-		if($options)
-		return call_user_func(array($controller['class'], $controller['method']), $params, $options);
-
-		if($params)
-		return call_user_func(array($controller['class'], $controller['method']), $params);
-
-		return call_user_func(array($controller['class'], $controller['method']));
-	}
-
-
-
-	/**
-	 * Formats the Response and Sends
-	 * it to the Output Method.
-	 *
-	 * @param array $response
- 	 *
- 	 * @access 'public'
- 	 * @return void
-	 */
-
-	public static function send_response($response=array())
-	{
-		if(empty($response['status']) || empty($response['code']))
-		{
-			$response = self::build_response('', $response);
-		}
-
-		$response = self::run_filter('response', $response);
-
-		self::send_output($response);
-	}
-
-
-
-	/**
-	 * Formats the Response for output and
-	 * sets the appropriate headers.
-	 *
-	 * @param array $output
- 	 *
- 	 * @access 'private'
- 	 * @return void
-	 */
-
-	private static function send_output($response=array(), $run_filters=true)
-	{
-		$default_response_headers = [
-			'Access-Control-Allow-Origin: *',
-			'Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS',
-			'Access-Control-Allow-Headers: Origin, X-Requested-With, Content-Type, Accept, Authorization'
-		];
-
-		$headers = (isset(self::$config->response_headers) ? self::$config->response_headers : $default_response_headers);
-
-		$output = array_merge(
-			[
-				'status' => '',
-				'code' => '',
-				'method' => self::get_method(),
-				'time' => number_format(microtime(true) - self::$timestart, 6),
-				'request_id' => self::get_request_id(),
-				'hash' => '',
-				'messages' => '',
-				'body' => '',
-			],
-			$response
-		);
-
-		$response = ['headers' => $headers, 'body' => json_encode($output)];
-
-		$response = self::run_filter('output', $response);
-
-		if(!empty($response['headers']))
-		{
-			foreach ($response['headers'] as $header)
-			{
-				header($header);
-			}
-		}
-
-		if(!empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS')
-		{
-			echo '';
-		}
-		else if(!empty($response['body']))
-		{
-			echo $response['body'];
-		}
-
-		exit;
-	}
-
+class Spry
+{
+    private static $auth;
+    private static $cli = false;
+    private static $config;
+    private static $configFile = '';
+    private static $db = null;
+    private static $filters = [];
+    private static $hooks = [];
+    private static $logger = null;
+    private static $params = [];
+    private static $path = null;
+    private static $projectPath = '';
+    private static $requestId = '';
+    private static $route = null;
+    private static $routes = [];
+    private static $test = false;
+    private static $timestart;
+    private static $validator;
+    private static $version = "0.9.33";
+
+    /**
+     * Initiates the API Call.
+     *
+     * @param mixed $args
+     *
+     * @access public
+     *
+     * @return void
+     */
+    public static function run($args = [])
+    {
+        self::$timestart = microtime(true);
+        self::$requestId = md5(uniqid('', true));
+
+        if ($args && is_string($args)) {
+            if (file_exists($args)) {
+                $args = ['config' => $args];
+            } else {
+                // Check if it is not Json and if so then base64_decode it.
+                if (!preg_match('/[\"\[\{]+/', $args)) {
+                    $args = base64_decode($args);
+                }
+
+                $args = json_decode($args, true);
+            }
+
+            if (empty($args) || !is_array($args)) {
+                $responseCodes = self::getCoreResponseCodes();
+
+                // Logger may not be setup so trigger php notice
+                trigger_error('Spry ERROR: '.$responseCodes[5003]);
+
+                self::stop(5003, null, $responseCodes[5003]);
+            }
+        }
+
+        // Set Defaults
+        $args = array_merge(
+            [
+                'config' => '',
+                'path' => '',
+                'controller' => '',
+                'params' => null,
+            ],
+            $args
+        );
+
+        if (empty($args['config']) || (is_string($args['config']) && !file_exists($args['config']))) {
+            $responseCodes = self::getCoreResponseCodes();
+
+            // Logger may not be setup so trigger php notice
+            trigger_error('Spry ERROR: '.$responseCodes[5001]);
+
+            self::stop(5001, null, $responseCodes[5001]);
+        }
+
+        if (is_string($args['config']) && file_exists($args['config'])) {
+            self::$projectPath = dirname($args['config']);
+        }
+
+        self::$cli = self::isCli();
+
+        // Setup Config Data Autoloader and Configure Filters
+        self::configure($args['config']);
+
+        if (empty(self::$config->salt)) {
+            $responseCodes = self::getCoreResponseCodes();
+
+            // Logger may not be setup so trigger php notice
+            trigger_error('Spry: '.$responseCodes[5002]);
+
+            self::stop(5002, null, $responseCodes[5002]);
+        }
+
+        // Configure Hook
+        self::runHook('configure');
+
+        // Return Data Immediately if is a PreFlight OPTIONS Request
+        if (!empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+            self::sendOutput();
+        }
+
+        self::$path = (!empty($args['path']) ? $args['path'] : self::getPath());
+
+        // Set Path Hook
+        self::runHook('setPath');
+
+        self::setRoutes();
+
+        self::setParams(self::fetchParams($args['params']));
+
+        // IF Test Data then set currnt transaction as Test
+        if (!empty(self::$params['test_data'])) {
+            self::$test = true;
+        }
+
+        if ($args['controller']) {
+            $controller = self::getController($args['controller']);
+        } else {
+            self::$route = self::getRoute(self::$path);
+            $controller = self::getController(self::$route['controller']);
+        }
+
+        if (self::$cli) {
+            $response = self::getResponse($controller, self::$params);
+        } else {
+            $response = self::getResponse($controller, self::validateParams());
+        }
+
+        self::sendResponse($response);
+    }
+
+    /**
+     * @access public
+     *
+     * @return boolean
+     */
+    public static function isCli()
+    {
+        return (
+            php_sapi_name() === 'cli' ||
+            (!empty($_SERVER['argc']) && is_numeric($_SERVER['argc']) && $_SERVER['argc'] > 0)
+        );
+    }
+
+    /**
+     * Loads the components
+     *
+     * @access public
+     *
+     * @return string
+     */
+    public static function getComponents()
+    {
+        if (!empty(self::$config->componentsDir) && is_dir(self::$config->componentsDir)) {
+            foreach (glob(rtrim(self::$config->componentsDir, '/').'/*') as $file) {
+                $componentName = str_replace('.php', '', basename($file));
+                $class = '\\Spry\\SpryComponent\\'.$componentName;
+                include_once $file;
+
+                if (method_exists($class, 'setup')) {
+                    $class::setup();
+                }
+
+                if (method_exists($class, 'getRoutes')) {
+                    $routes = $class::getRoutes();
+                    if (!empty($routes)) {
+                        foreach ($routes as $routeKey => $route) {
+                            self::$config->routes[$routeKey] = $route;
+                        }
+                    }
+                }
+
+                if (method_exists($class, 'getSchema')) {
+                    $schemas = $class::getSchema();
+                    if (!empty($schemas)) {
+                        foreach ($schemas as $schemaKey => $schema) {
+                            self::$config->db['schema']['tables'][$schemaKey] = $schema;
+                        }
+                    }
+                }
+
+                if (method_exists($class, 'getTests')) {
+                    $tests = $class::getTests();
+                    if (!empty($tests)) {
+                        foreach ($tests as $testKey => $test) {
+                            self::$config->tests[$testKey] = $test;
+                        }
+                    }
+                }
+
+                if (method_exists($class, 'getCodes')) {
+                    $codes = $class::getCodes();
+                    if (!empty($codes)) {
+                        foreach ($codes as $codeKey => $code) {
+                            if (isset(self::$config->responseCodes[$codeKey])) {
+                                trigger_error('Spry Response Code ('.$codeKey.') on Component ('.$class.') is already in use by another Component.');
+                                self::log('Spry Response Code ('.$codeKey.') on Component ('.$class.') is already in use by another Component.');
+                            }
+                            self::$config->responseCodes[$codeKey] = $code;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * @access public
+     *
+     * @return boolean
+     */
+    public static function isTest()
+    {
+        return self::$test;
+    }
+
+    /**
+     * @access public
+     *
+     * @return string
+     */
+    public static function getVersion()
+    {
+        return self::$version;
+    }
+
+    /**
+     * Returns that Path to the Spry Project.
+     * Requires the config file to be loaded.
+     *
+     * @access public
+     *
+     * @return string
+     */
+    public static function getProjectPath()
+    {
+        return self::$projectPath;
+    }
+
+    /**
+     * @access public
+     *
+     * @return string
+     */
+    public static function getConfigFile()
+    {
+        return self::$configFile;
+    }
+
+    /**
+     * @access public
+     *
+     * @return string
+     */
+    public static function getRequestId()
+    {
+        return self::$requestId;
+    }
+
+    /**
+     * @access public
+     *
+     * @return string
+     */
+    public static function getMethod()
+    {
+        $method = strtoupper(trim(!empty($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'POST'));
+        if (in_array($method, ['POST', 'GET', 'PUT', 'DELETE'])) {
+            return $method;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param mixed $configData
+     *
+     * @access public
+     *
+     * @return void
+     */
+    public static function configure($configData = '')
+    {
+        if (empty(self::$requestId)) {
+            self::$requestId = md5(uniqid('', true));
+        }
+
+        if (!empty(self::$config)) {
+            return false;
+        }
+
+        if (is_object($configData)) {
+            $config = $configData;
+        } else {
+            $config = new stdClass();
+            $config->hooks = new stdClass();
+            $config->filters = new stdClass();
+            $config->db = new stdClass();
+            $config->logger = new stdClass();
+
+            include $configData;
+            self::$configFile = $configData;
+        }
+
+        $config->responseCodes = array_replace(
+            self::getCoreResponseCodes(),
+            (!empty($config->responseCodes) ? $config->responseCodes : [])
+        );
+        self::$config = $config;
+
+        // Set AutoLoaders for Components, Providers and Plugins
+        spl_autoload_register(array(__CLASS__, 'autoloader'));
+
+        self::getComponents();
+
+        // Configure Filter
+        self::$config = self::runFilter('configure', self::$config);
+    }
+
+    /**
+     * Returns the Route including path and attached controller.
+     *
+     * @param string $path
+     *
+     * @access public
+     *
+     * @return array
+     */
+    public static function getRoute($path = null)
+    {
+        if (!$path) {
+            $path = self::$path;
+        }
+
+        $path = self::cleanPath($path);
+
+        if (!empty($path)) {
+            if (empty(self::$routes[$path]['controller'])) {
+                foreach (self::$routes as $routeUrl => $route) {
+                    if (is_string($route)) {
+                        $routeUrl = $route;
+                    }
+
+                    $routeReg = '/'.str_replace('/', '\\/', preg_replace('/\{[^\}]+\}/', '(.*)', $routeUrl)).'/';
+
+                    if (preg_match($routeReg, $path)) {
+                        $path = $routeUrl;
+                        break;
+                    }
+                }
+            }
+
+            if (empty(self::$routes[$path]['controller'])) {
+                foreach (self::$routes as $routeUrl => $route) {
+                    if (is_string($route)) {
+                        $routeUrl = $route;
+                    }
+
+                    if (strpos($routeUrl, '{') !== false && strpos($routeUrl, '}')) {
+                        $strippedPath = preg_replace('/\{[^\}]+\}\/?/', '', $routeUrl);
+
+                        if ($strippedPath === $path) {
+                            $path = $routeUrl;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (empty(self::$routes[$path]['controller'])) {
+                self::stop(5011);
+            }
+
+            $route = self::$routes[$path];
+        }
+
+        if (!empty($route)) {
+            $route['methods'] = array_map(
+                'trim',
+                array_map(
+                    'strtoupper',
+                    (!empty($route['methods']) ? (
+                        is_string($route['methods']) ? [$route['methods']] : $route['methods']
+                    )
+                            :
+                        ['POST'])
+                )
+            );
+
+            // If Methods are configured for route then check if method is allowed
+            if (!empty($route['methods']) &&
+                is_array($route['methods']) &&
+                !in_array(self::getMethod(), $route['methods'])
+            ) {
+                self::stop(5017, $_POST); // Methoed not allowed
+            }
+
+            $route = self::runFilter('getRoute', $route);
+
+            return $route;
+        }
+
+        self::stop(5011); // Request Not Found
+    }
+
+    /**
+     * Returns the public Routes available.
+     *
+     * @access public
+     *
+     * @return array
+     */
+    public static function getRoutes()
+    {
+        $publicRoutes = [];
+
+        if (!empty(self::$routes)) {
+            foreach (self::$routes as $routePath => $route) {
+                if (!isset($route['public']) || !empty($route['public'])) {
+                    $publicRoutes[$routePath] = $route;
+                }
+            }
+        }
+
+        return $publicRoutes;
+    }
+
+    /**
+     * Sets the Autoloader for the Extra Classed needed for the API.
+     *
+     * @param string $class
+     *
+     * @access public
+     *
+     * @return void
+     */
+    public static function autoloader($class)
+    {
+        $autoloaderDirectories = [];
+
+        if (!empty(self::$config->componentsDir)) {
+            $autoloaderDirectories[] = self::$config->componentsDir;
+        }
+
+        if (!empty($autoloaderDirectories)) {
+            foreach ($autoloaderDirectories as $dir) {
+                foreach (glob(rtrim($dir, '/').'/*') as $file) {
+                    if (strtolower(basename(str_replace('\\', '/', $class))).'.php' === strtolower(basename($file))) {
+                        include_once $file;
+
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Returns DB Provider.
+     *
+     * @access public
+     *
+     * @return \Spry\SpryProvider\SpryDB
+     */
+    public static function db()
+    {
+        if (!self::$db) {
+            if (empty(self::$config->dbProvider) || !class_exists(self::$config->dbProvider)) {
+                self::stop(5033);
+            }
+
+            $class = self::$config->dbProvider;
+
+            self::$db = new $class(self::$config->db);
+
+            // Database Hooks
+            self::runHook('database');
+        }
+
+        return self::$db;
+    }
+
+    /**
+     * Returns Logger Provider.
+     *
+     * @param string $message
+     *
+     * @access public
+     *
+     * @return object
+     */
+    public static function log($message = '')
+    {
+        if (!self::$logger) {
+            if (empty(self::$config->loggerProvider)) {
+                self::stop(5040);
+            }
+
+            if (!class_exists(self::$config->loggerProvider)) {
+                self::stop(5040);
+            }
+
+            $class = self::$config->loggerProvider;
+
+            self::$logger = new $class(self::$config->logger);
+        }
+
+        if ($message) {
+            if (!method_exists(self::$logger, 'log')) {
+                trigger_error('Spry: Log Provider missing method "log".', E_USER_WARNING);
+            }
+
+            return self::$logger->log($message);
+        }
+
+        return self::$logger;
+    }
+
+    /**
+     * Returns Validator Extension.
+     *
+     * @param mixed $params
+     *
+     * @access public
+     *
+     * @return object
+     */
+    public static function validator($params = null)
+    {
+        if (is_null($params)) {
+            $params = self::$params;
+        }
+
+        if (empty(self::$validator)) {
+            self::$validator = new SpryProvider\SpryValidator($params);
+        } else {
+            self::$validator->setData($params);
+        }
+
+        return self::$validator;
+    }
+
+    /**
+     * Kills the Request and returns immediate error.
+     *
+     * @param int   $responseCode
+     * @param mixed $data
+     * @param array $messages
+     * @param array $privateData
+     *
+     * @access public
+     *
+     * @return void
+     */
+    public static function stop($responseCode = 0, $data = null, $messages = [], $privateData = null)
+    {
+        if (!empty($messages) && (is_string($messages) || is_numeric($messages))) {
+            $messages = [$messages];
+        }
+
+        $params = [
+            'code' => $responseCode,
+            'data' => $data,
+            'messages' => $messages,
+            'private_data' => $privateData,
+        ];
+
+        self::runHook('stop', $params);
+
+        $response = self::buildResponse($responseCode, $data, $messages);
+
+        self::sendResponse($response);
+    }
+
+    /**
+     * Sets the Auth object.
+     *
+     * @param mixed $object
+     *
+     * @access public
+     *
+     * @return object
+     */
+    public static function setAuth($object)
+    {
+        self::$auth = $object;
+    }
+
+    /**
+     * Returns the Auth object.
+     *
+     * @access public
+     *
+     * @return object
+     */
+    public static function auth()
+    {
+        return self::$auth;
+    }
+
+    /**
+     * Returns the Config Parameters from the Singleton Class.
+     *
+     * @access public
+     *
+     * @return object
+     */
+    public static function config()
+    {
+        return self::$config;
+    }
+
+    /**
+     * Gets the Data sent in the API Call and converts it to Parameters.
+     * Then returns the converted Parameters as array.
+     * Throughs stop() on failure.
+     *
+     * @param string $param
+     *
+     * @access public
+     *
+     * @return array
+     */
+    public static function params($param = '')
+    {
+        if ($param) {
+            // Check for Multi-Demension Parameter
+            if (strpos($param, '.')) {
+                $nestedParam = self::$params;
+                $paramItems = explode('.', $param);
+                foreach ($paramItems as $paramItem) {
+                    if (!is_null($nestedParam) && isset($nestedParam[$paramItem])) {
+                        $nestedParam = $nestedParam[$paramItem];
+                    } else {
+                        $nestedParam = null;
+                    }
+                }
+
+                return $nestedParam;
+            }
+
+            if (isset(self::$params[$param])) {
+                return self::$params[$param];
+            }
+
+            return null;
+        }
+
+        return self::$params;
+    }
+
+    /**
+     * Sets the Param Data
+     *
+     * @param array $params
+     *
+     * @access public
+     *
+     * @return bool
+     */
+    public static function setParams($params = [])
+    {
+        if (!empty($params)) {
+            self::$params = array_merge(self::$params, $params);
+        }
+
+        if (is_array(self::$params)) {
+            self::$params = self::runFilter('params', self::$params);
+        }
+
+        // Set Param Hooks
+        self::runHook('setParams');
+
+        return true;
+    }
+
+    /**
+     * Gets the URL Path of the current API Call.
+     *
+     * @access public
+     *
+     * @return string
+     */
+    public static function getPath()
+    {
+        $path = '';
+
+        if (isset($_SERVER['REQUEST_URI'])) {
+            $path = explode('?', strtolower($_SERVER['REQUEST_URI']), 2);
+            $path = self::cleanPath($path[0]);
+        } elseif (isset($_SERVER['SCRIPT_FILENAME']) && strpos($_SERVER['SCRIPT_FILENAME'], 'SpryCli.php')) {
+            $path = '::spry_cli';
+        } elseif (self::$cli) {
+            $path = '::cli';
+        }
+
+        $path = self::runFilter('getPath', $path);
+
+        return $path;
+    }
+
+    /**
+     * Determines whether a Controller Exists.
+     *
+     * @param string $controller
+     *
+     * @access public
+     *
+     * @return boolean
+     */
+    public static function controllerExists($controller = '')
+    {
+        if (!empty($controller)) {
+            if (!is_string($controller) || strpos($controller, '::') === false) {
+                return false;
+            }
+
+            list($class, $method) = explode('::', $controller);
+
+            if (class_exists($class)) {
+                if (method_exists($class, $method)) {
+                    return true;
+                }
+            } elseif (class_exists('Spry\\SpryComponent\\'.$class)) {
+                if (method_exists('Spry\\SpryComponent\\'.$class, $method)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Return just the body of the request if successfull.
+     *
+     * @param mixed $result
+     *
+     * @access public
+     *
+     * @return mixed
+     */
+    public static function getBody($result)
+    {
+        if (!empty($result['status']) && $result['status'] === 'success' && isset($result['body'])) {
+            return $result['body'];
+        }
+
+        return null;
+    }
+
+    /**
+     * Adds Hook to Spry Hooks
+     *
+     * @param string $filterKey
+     * @param mixed  $controller
+     * @param array  $extraData
+     * @param int    $order
+     *
+     * @return mixed
+     */
+    public static function addFilter($filterKey = '', $controller = null, $extraData = [], $order = 0)
+    {
+        if (empty(self::$filters[$filterKey]) || !is_array(self::$filters[$filterKey])) {
+            self::$filters[$filterKey] = [];
+        }
+        self::$filters[$filterKey][] = [
+            'controller' => $controller,
+            'extraData' => $extraData,
+            'order' => $order,
+        ];
+    }
+
+    /**
+     * @param string $filterKey
+     * @param mixed  $data
+     *
+     * @return mixed
+     */
+    public static function runFilter($filterKey = null, $data = null)
+    {
+        if (!empty(self::$filters[$filterKey]) && is_array(self::$filters[$filterKey])) {
+            foreach (self::$filters[$filterKey] as $filter) {
+                if (!empty($filter['controller'])) {
+                    $data = self::getResponse(self::getController($filter['controller']), $data, $filter['extraData'] ?? null);
+                }
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Adds Hook to Spry Hooks
+     *
+     * @param string $hookKey
+     * @param mixed  $controller
+     * @param array  $extraData
+     * @param int    $order
+     *
+     * @return mixed
+     */
+    public static function addHook($hookKey = '', $controller = null, $extraData = [], $order = 0)
+    {
+        if (empty(self::$hooks[$hookKey]) || !is_array(self::$hooks[$hookKey])) {
+            self::$hooks[$hookKey] = [];
+        }
+        self::$hooks[$hookKey][] = [
+            'controller' => $controller,
+            'extraData' => $extraData,
+            'order' => $order,
+        ];
+    }
+
+    /**
+     * @param string $hookKey
+     * @param mixed  $data
+     *
+     * @return void
+     */
+    public static function runHook($hookKey = null, $data = null)
+    {
+        if (!empty(self::$hooks[$hookKey]) && is_array(self::$hooks[$hookKey])) {
+            foreach (self::$hooks[$hookKey] as $hook) {
+                if (!empty($hook['controller'])) {
+                    // Skip Get Controller if Contrller not exists only for STOP
+                    // As it could cause a seg fault loop
+                    if (strval($hookKey) === 'stop' && !is_callable($hook['controller']) && !self::controllerExists($hook['controller'])) {
+                        $response = self::buildResponse(5016, null, is_string($hook['controller']) ? $hook['controller'] : $hookKey);
+                        self::sendResponse($response);
+                        exit;
+                    }
+                    $data = self::getResponse(self::getController($hook['controller']), $data, $hook['extraData'] ?? null);
+                }
+            }
+        }
+    }
+
+    /**
+     * Formats the Results given by a Controller method.
+     *
+     * @param int          $responseCode
+     * @param mixed        $data
+     * @param array        $messages
+     * @param array | null $meta
+     *
+     * @access public
+     *
+     * @return array
+     */
+    public static function response($responseCode = 0, $data = null, $messages = [], $meta = null)
+    {
+        $responseCode = strval($responseCode);
+
+        if (strlen($responseCode) < 2) {
+            $responseCode = '00'.$responseCode;
+        }
+
+        if (strlen($responseCode) < 3) {
+            $responseCode = '0'.$responseCode;
+        }
+
+        if (strlen($responseCode) > 3) {
+            return self::buildResponse($responseCode, $data, $messages, $meta);
+        }
+
+        if (!empty($data) || 0 === $data) {
+            return self::buildResponse('2'.$responseCode, $data, $messages, $meta);
+        }
+
+        if (empty($data) && !is_null($data) && 0 !== $data) {
+            return self::buildResponse('4'.$responseCode, $data, $messages, $meta);
+        }
+
+        return self::buildResponse('5'.$responseCode, null, $messages, $meta);
+    }
+
+    /**
+     * Formats the Response and Sends
+     * it to the Output Method.
+     *
+     * @param array $response
+     *
+     * @access public
+     *
+     * @return void
+     */
+    public static function sendResponse($response = array())
+    {
+        if (empty($response['status']) || empty($response['code'])) {
+            $response = self::buildResponse('', $response);
+        }
+
+        $response = self::runFilter('response', $response);
+
+        self::sendOutput($response);
+    }
+
+    /**
+     * @access public
+     *
+     * @return array
+     */
+    private static function getCoreResponseCodes()
+    {
+        return [
+            2000 => 'Success!',
+            4000 => 'No Results',
+            5000 => 'Error: Unknown Error',
+            5001 => 'Error: Missing Config File',
+            5002 => 'Error: Missing Salt in Config File',
+            5003 => 'Error: Unknown configuration error on run',
+
+            5011 => 'Error: Route Not Found.',
+            5012 => 'Error: Class Not Found.',
+            5013 => 'Error: Class Method Not Found.',
+            5014 => 'Error: Returned Data is not in JSON format.',
+            5015 => 'Error: Class Method is not Callable. Make sure it is Public.',
+            5016 => 'Error: Controller Not Found.',
+            5017 => 'Error: Method not allowed by Route.',
+
+            5020 => 'Error: Field did not Validate.',
+
+            /* DB */
+            2030 => 'Database Migrate Ran Successfully',
+            5030 => 'Error: Database Migrate had an Error',
+            5031 => 'Error: Database Connect Error.',
+            5032 => 'Error: Missing Database Credentials from config.',
+            5033 => 'Error: Database Provider not found.',
+
+            /* Log */
+            5040 => 'Error: Log Provider not found.',
+
+            /* Tests */
+            2050 => 'Test Passed Successfully',
+            5050 => 'Error: Test Failed',
+            5051 => 'Error: Retrieving Tests',
+            5052 => 'Error: No Tests Configured',
+            5053 => 'Error: No Test with that name Configured',
+
+            /* Background Process */
+            5060 => 'Error: Background Process did not return Process ID',
+            5061 => 'Error: Background Process could not find autoload',
+            5062 => 'Error: Unknown response from Background Process',
+
+        ];
+    }
+
+    /**
+     * Adds all the Routes to allow.
+     *
+     * @access private
+     *
+     * @return void
+     */
+    private static function setRoutes()
+    {
+        foreach (self::$config->routes as $routePath => $route) {
+            if (!empty($route) && (!isset($route['active']) || !empty($route['active']))) {
+                self::addRoute($routePath, $route);
+            }
+        }
+
+        // Route Hooks
+        self::runHook('setRoutes');
+    }
+
+    /**
+     * Gets the response Type.
+     *
+     * @param string | int $code
+     *
+     * @access private
+     *
+     * @return string
+     */
+    private static function responseType($code = '')
+    {
+        if (!empty($code) && is_numeric($code)) {
+            switch (substr($code, 0, 1)) {
+                case 2:
+                case 4:
+                    return 'success';
+
+                case 5:
+                    return 'error';
+            }
+        }
+
+        return 'unknown';
+    }
+
+    /**
+     * Sets all the response Codes available for the App.
+     *
+     * @param int $code
+     *
+     * @access private
+     *
+     * @return array
+     */
+    private static function responseCodes($code = 0)
+    {
+        $lang = 'en';
+        $type = 4;
+
+        if (self::params('lang')) {
+            $lang = self::params('lang');
+        }
+
+        if (strlen($code)) {
+            $type = substr($code, 0, 1);
+        }
+
+        $codes = self::$config->responseCodes;
+
+        if (isset($codes[$code][$lang])) {
+            $response = $codes[$code][$lang];
+        } elseif (isset($codes[$code]) && is_string($codes[$code])) {
+            $response = $codes[$code];
+        } elseif (intval($type) === 4 && isset($codes[4000][$lang])) {
+            $code = 4000;
+            $response = $codes[$code][$lang];
+        } elseif (intval($type) === 4 && isset($codes[4000])) {
+            $code = 4000;
+            $response = $codes[$code];
+        } elseif (intval($type) === 4 && isset($codes[4000]) && is_string($codes[4000])) {
+            $code = 4000;
+            $response = $codes[$code];
+        }
+
+        if (!empty($response)) {
+            return ['status' => self::responseType($code), 'code' => (int) $code, 'messages' => [$response]];
+        }
+
+        return ['status' => 'unknown', 'code' => $code, 'messages' => ['Unkown Response Code']];
+    }
+
+    /**
+     * Adds a route to the allowed list.
+     *
+     * @param string $path
+     * @param string $route
+     *
+     * @access private
+     *
+     * @return void
+     */
+    private static function addRoute($path, $route)
+    {
+        $path = self::cleanPath($path);
+
+        if (!is_array($route)) {
+            $route = [
+                'label' => ucwords(preg_replace('/\W|_/', ' ', $path)),
+                'controller' => $route,
+            ];
+        }
+
+        $route = array_merge(
+            [
+                'controller' => '',
+                'active' => true,
+                'public' => true,
+                'label' => '',
+                'params' => [],
+            ],
+            $route
+        );
+
+        self::$routes[$path] = $route;
+    }
+
+    /**
+     * Adds a route to the allowed list.
+     *
+     * @param string $path
+     * @param mixed  $params
+     * @param mixed  $args
+     *
+     * @access private
+     *
+     * @return void
+     */
+    private static function validateParams($path = null, $params = null, $args = null)
+    {
+        if (!empty($path)) {
+            $route = self::getRoute($path);
+        }
+
+        if (empty($route)) {
+            $route = (self::$route ? self::$route : self::getRoute());
+        }
+
+        if (is_null($params)) {
+            $params = self::params();
+        }
+
+        if (empty($route['params'])) {
+            $newParams = $params;
+        } else {
+            $newParams = [];
+
+            if (!empty($params['test_data'])) {
+                $newParams['test_data'] = $params['test_data'];
+            }
+
+            $messageFields = [
+                'required',
+                'minlength',
+                'maxlength',
+                'length',
+                'betweenlength',
+                'min',
+                'max',
+                'between',
+                'matches',
+                'notmatches',
+                'startswith',
+                'notstartswith',
+                'endswith',
+                'notendswith',
+                'array',
+                'int',
+                'integer',
+                'string',
+                'number',
+                'float',
+                'digits',
+                'ccnum',
+                'ip',
+                'email',
+                'date',
+                'mindate',
+                'maxdate',
+                'url',
+                'in',
+                'callback',
+                'hassymbols',
+                'hasnumbers',
+                'hasletters',
+                'haslowercase',
+                'hasuppercase',
+            ];
+
+            foreach ($route['params'] as $paramKey => $paramSettings) {
+                if (is_int($paramKey) && $paramSettings && is_string($paramSettings)) {
+                    $paramKey = $paramSettings;
+                    $paramSettings = [];
+                }
+
+                if (!isset($paramSettings['trim']) && !empty($route['params_trim'])) {
+                    $paramSettings['trim'] = true;
+                }
+
+                $required = (empty($paramSettings['required']) ? false : true);
+
+                if (!empty($paramSettings['required']) && is_array($paramSettings['required'])) {
+                    foreach ($paramSettings['required'] as $requiredFieldKey => $requiredFieldValue) {
+                        if (!isset($params[$requiredFieldKey]) ||
+                            $params[$requiredFieldKey] !== $requiredFieldValue
+                        ) {
+                            $required = false;
+                        }
+                    }
+                }
+
+                // Skip if not Required or Param is not present
+                if (empty($required) && !isset($params[$paramKey])) {
+                    continue;
+                }
+
+                // Set Default
+                if (!isset($params[$paramKey]) && isset($paramSettings['default'])) {
+                    $params[$paramKey] = $paramSettings['default'];
+                }
+
+                $messages = [];
+
+                foreach ($messageFields as $field) {
+                    $messages[$field] = (
+                        !empty($paramSettings['messages'][$field])
+                            ?
+                        $paramSettings['messages'][$field]
+                            :
+                        null
+                    );
+                }
+
+                // Construct Validator
+                $validator = self::validator($params);
+
+                if ($required) {
+                    $validator->required($messages['required']);
+                }
+
+                if (isset($paramSettings['type'])) {
+                    switch ($paramSettings['type']) {
+                        case 'int':
+                        case 'integer':
+                            $validator->integer($messages['integer']);
+                            break;
+
+                        case 'number':
+                        case 'num':
+                        case 'float':
+                            $validator->float($messages['float']);
+                            break;
+
+                        case 'array':
+                            $validator->isarray($messages['array']);
+                            break;
+
+                        case 'cardNumber':
+                            $validator->ccnum($messages['ccnum']);
+                            break;
+
+                        case 'date':
+                            $validator->date($messages['date']);
+                            break;
+
+                        case 'email':
+                            $validator->email($messages['email']);
+                            break;
+
+                        case 'url':
+                            $validator->url($messages['url']);
+                            break;
+
+                        case 'ip':
+                            $validator->ip($messages['ip']);
+                            break;
+
+                        case 'domain':
+                            $validator->domain($messages['domain']);
+                            break;
+
+                        case 'string':
+                            $validator->string($messages['string']);
+                            break;
+
+                        case 'boolean':
+                        case 'bool':
+                            $validator->boolean($messages['string']);
+                            break;
+
+                        case 'password':
+                            $validator->string($messages['string']);
+                            $validator->minLength(10, $messages['minlength']);
+                            $validator->hasSymbols(1, $messages['hassymbols']);
+                            $validator->hasNumbers(1, $messages['hasnumbers']);
+                            $validator->hasLetters(1, $messages['hasletters']);
+                            $validator->hasLowercase(1, $messages['haslowercase']);
+                            $validator->hasUppercase(1, $messages['hasuppercase']);
+                            break;
+                    }
+                }
+
+                if (isset($paramSettings['minLength'])) {
+                    $validator->minLength($paramSettings['minLength'], $messages['minlength']);
+                }
+
+                if (isset($paramSettings['maxLength'])) {
+                    $validator->maxLength($paramSettings['maxLength'], $messages['maxlength']);
+                }
+
+                if (isset($paramSettings['length'])) {
+                    $validator->length($paramSettings['length'], $messages['length']);
+                }
+
+                if (isset($paramSettings['min'])) {
+                    $validator->min($paramSettings['min'], true, $messages['min']);
+                }
+
+                if (isset($paramSettings['max'])) {
+                    $validator->max($paramSettings['max'], true, $messages['max']);
+                }
+
+                if (isset($paramSettings['between'])) {
+                    $validator->between(
+                        $paramSettings['between'][0],
+                        $paramSettings['between'][1],
+                        true,
+                        $messages['between']
+                    );
+                }
+
+                if (isset($paramSettings['betweenLength'])) {
+                    $validator->betweenlength(
+                        $paramSettings['betweenLength'][0],
+                        $paramSettings['betweenLength'][1],
+                        $messages['betweenlength']
+                    );
+                }
+
+                if (isset($paramSettings['matches'])) {
+                    $validator->matches(
+                        $paramSettings['matches'],
+                        ucwords($paramSettings['matches']),
+                        $messages['matches']
+                    );
+                }
+
+                if (isset($paramSettings['notMatches'])) {
+                    $validator->notmatches(
+                        $paramSettings['notMatches'],
+                        ucwords($paramSettings['notMatches']),
+                        $messages['notmatches']
+                    );
+                }
+
+                if (isset($paramSettings['startsWith'])) {
+                    $validator->startsWith($paramSettings['startsWith'], $messages['startswith']);
+                }
+
+                if (isset($paramSettings['notStartsWith'])) {
+                    $validator->notstartsWith($paramSettings['notStartsWith'], $messages['notstartswith']);
+                }
+
+                if (isset($paramSettings['endsWith'])) {
+                    $validator->endsWith($paramSettings['endsWith'], $messages['endswith']);
+                }
+
+                if (isset($paramSettings['notEndsWith'])) {
+                    $validator->notendsWith($paramSettings['notEndsWith'], $messages['notendswith']);
+                }
+
+                if (isset($paramSettings['numbersOnly'])) {
+                    $validator->digits($messages['digits']);
+                }
+
+                if (isset($paramSettings['minDate'])) {
+                    $validator->minDate($paramSettings['minDate'], null, $messages['mindate']);
+                }
+
+                if (isset($paramSettings['maxDate'])) {
+                    $validator->maxDate($paramSettings['maxDate'], null, $messages['maxdate']);
+                }
+
+                if (isset($paramSettings['in'])) {
+                    $validator->in($paramSettings['in'], $messages['in']);
+                }
+
+                if (isset($paramSettings['has'])) {
+                    $validator->has($paramSettings['has'], $messages['has']);
+                }
+
+                if (isset($paramSettings['hasSymbols'])) {
+                    $validator->hasSymbols($paramSettings['hasSymbols'], $messages['hasSymbols']);
+                }
+
+                if (isset($paramSettings['hasNumbers'])) {
+                    $validator->hasNumbers($paramSettings['hasNumbers'], $messages['hasNumbers']);
+                }
+
+                if (isset($paramSettings['hasLetters'])) {
+                    $validator->hasLetters($paramSettings['hasLetters'], $messages['hasLetters']);
+                }
+
+                if (isset($paramSettings['hasLowercase'])) {
+                    $validator->hasLowercase($paramSettings['hasLowercase'], $messages['hasLowercase']);
+                }
+
+                if (isset($paramSettings['hasUppercase'])) {
+                    $validator->hasUppercase($paramSettings['hasUppercase'], $messages['hasUppercase']);
+                }
+
+                if (isset($paramSettings['callback'])) {
+                    $validator->callback($paramSettings['callback'], $messages['callback']);
+                }
+
+                if (isset($paramSettings['filter'])) {
+                    $validator->filter($paramSettings['filter']);
+                }
+
+                if (!empty($paramSettings['validateOnly'])) {
+                    $validator->validate($paramKey);
+                } else {
+                    $newParams[$paramKey] = $validator->validate($paramKey);
+
+                    if (is_array($newParams[$paramKey]) || is_object($newParams[$paramKey])) {
+                        if (!empty($paramSettings['trim'])) {
+                            $newParams[$paramKey] = array_values(
+                                array_filter(array_map('trim', $newParams[$paramKey]))
+                            );
+                        }
+
+                        if (!empty($paramSettings['unique'])) {
+                            $newParams[$paramKey] = array_values(array_unique($newParams[$paramKey]));
+                        }
+                    } else {
+                        if (!empty($paramSettings['trim'])) {
+                            $newParams[$paramKey] = trim($newParams[$paramKey]);
+                        }
+                    }
+                }
+            }
+        }
+
+        $newParams = self::runFilter('validateParams', $newParams);
+
+        return $newParams;
+    }
+
+    /**
+     * Gets the Data sent in the API Call and converts it to Parameters.
+     * Then returns the converted Parameters as array.
+     * Throughs stop() on failure.
+     *
+     * @param mixed $params
+     *
+     * @access private
+     *
+     * @return array
+     */
+    private static function fetchParams($params = null)
+    {
+        if (!is_null($params)) {
+            $data = $params;
+        } else {
+            $data = trim(file_get_contents('php://input'));
+
+            if (empty($data) && self::$cli) {
+                $data = trim(file_get_contents('php://stdin'));
+            }
+
+            if (empty($data) && self::getMethod() === 'GET' && !empty($_GET)) {
+                $data = $_GET;
+            }
+
+            if (empty($data) && self::getMethod() === 'POST' && !empty($_POST)) {
+                $data = $_POST;
+            }
+
+            if (empty($data)) {
+                $data = [];
+            }
+
+            foreach (self::$routes as $routeUrl => $route) {
+                if (is_string($route)) {
+                    $routeUrl = $route;
+                }
+
+                $routeReg = '/'.str_replace('/', '\\/', preg_replace('/\{[^\}]+\}/', '(.*)', $routeUrl)).'/';
+
+                preg_match_all('/\{([^\}]+)\}/', $routeUrl, $matchParams);
+                preg_match_all($routeReg, self::$path, $matchValues);
+
+                if (preg_match($routeReg, self::$path) && !empty($matchParams[1]) && !empty($matchValues[1])) {
+                    foreach ($matchParams[1] as $matchParamKey => $matchParam) {
+                        $data[$matchParam] = $matchValues[1][$matchParamKey];
+                    }
+                }
+            }
+        }
+
+        if ($data && is_string($data)) {
+            if (in_array(substr($data, 0, 1), ['[', '{'])) {
+                $data = json_decode($data, true);
+            } else {
+                // TODO
+                echo '<pre>';
+                print_r($data);
+                echo '</pre>';
+                exit;
+            }
+        }
+
+        if (!empty($data)) {
+            $data = self::runFilter('params', $data);
+        }
+
+        if (!empty($data) && !is_array($data)) {
+            self::stop(5014); // Returned Data is not in JSON format
+        }
+
+        return $data;
+    }
+
+    /**
+     * Cleans the Path given to a specified format.
+     *
+     * @param string $path
+     *
+     * @access private
+     *
+     * @return string
+     */
+    private static function cleanPath($path)
+    {
+        return '/'.trim($path, " \t\n\r\0\x0B\/").'/';
+    }
+
+    /**
+     * Returns the Controller Object and Method by name.
+     * Throughs stop() on failure.
+     *
+     * @param string $controller
+     *
+     * @access private
+     *
+     * @return array
+     */
+    private static function getController($controller = '')
+    {
+        if (!empty($controller)) {
+            if (!is_string($controller) && is_callable($controller)) {
+                return ['function' => $controller, 'class' => null, 'method' => null];
+            }
+
+            $responseCodes = self::getCoreResponseCodes();
+
+            list($class, $method) = explode('::', $controller);
+
+            $paths = [
+                '',
+                'Spry\\SpryComponent\\',
+            ];
+
+            foreach ($paths as $path) {
+                if (class_exists($path.$class)) {
+                    if (method_exists($path.$class, $method)) {
+                        return ['class' => $path.$class, 'method' => $method];
+                    }
+
+                    // No Method for that Class
+                    self::sendOutput(
+                        [
+                            'status' => 'error',
+                            'code' => 5013,
+                            'messages' => [$responseCodes[5013],
+                                $path.$class.'::'.$method, ],
+                        ],
+                        false
+                    );
+                }
+            }
+
+            // No Classes Found
+            self::sendOutput([
+                'status' => 'error',
+                'code' => 5012,
+                'messages' => [$responseCodes[5012],
+                    $class, ],
+            ], false);
+        }
+
+        // No Controller
+        self::sendOutput([
+            'status' => 'error',
+            'code' => 5016,
+            'messages' => [$responseCodes[5016],
+                $controller, ],
+        ], false);
+    }
+
+    /**
+     * Formats the Response before given to the Output Method
+     *
+     * @param int          $responseCode
+     * @param mixed        $data
+     * @param mixed        $messages
+     * @param array | null $meta
+     *
+     * @access private
+     *
+     * @return array
+     */
+    private static function buildResponse($responseCode = 0, $data = null, $messages = [], $meta = null)
+    {
+        $response = self::responseCodes($responseCode);
+
+        if (!is_null($data)) {
+            $response['hash'] = md5($responseCode.serialize($data));
+            $response['body'] = $data;
+        }
+
+        if (!empty($messages) && (is_string($messages) || is_numeric($messages))) {
+            $messages = [$messages];
+        }
+
+        if (!empty($messages)) {
+            $response['messages'] = array_merge($response['messages'], $messages);
+        }
+
+        if (!empty($meta) && is_array($meta)) {
+            foreach ($meta as $key => $value) {
+                $response[$key] = $value;
+            }
+        }
+
+        $response = self::runFilter('buildResponse', $response);
+
+        return $response;
+    }
+
+    /**
+     * Returns the Response from a given Controller method
+     *
+     * @param array $controller
+     * @param null  $params     Params as Filtered items or from hook
+     * @param array $options    Options sent from Filter or Hook
+     *
+     * @access private
+     *
+     * @return mixed
+     */
+    private static function getResponse($controller = array(), $params = null, $options = null)
+    {
+        if (isset($controller['function']) && is_callable($controller['function'])) {
+            if ($options) {
+                return call_user_func($controller['function'], $params, $options);
+            }
+
+            if ($params) {
+                return call_user_func($controller['function'], $params);
+            }
+
+            return call_user_func($controller['function']);
+        }
+
+        if (!is_callable(array($controller['class'], $controller['method']))) {
+            self::stop(5015, null, $controller['class'].'::'.$controller['method']);
+        }
+
+        if ($options) {
+            return call_user_func(array($controller['class'], $controller['method']), $params, $options);
+        }
+
+        if ($params) {
+            return call_user_func(array($controller['class'], $controller['method']), $params);
+        }
+
+        return call_user_func(array($controller['class'], $controller['method']));
+    }
+
+    /**
+     * Formats the Response for output and
+     * sets the appropriate headers.
+     *
+     * @param array $response
+     * @param array $runFilters
+     *
+     * @access private
+     *
+     * @return void
+     */
+    private static function sendOutput($response = array(), $runFilters = true)
+    {
+        $defaultResponseHeaders = [
+            'Access-Control-Allow-Origin: *',
+            'Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers: Origin, X-Requested-With, Content-Type, Accept, Authorization',
+        ];
+
+        $headers = isset(self::$config->responseHeaders) ? self::$config->responseHeaders : $defaultResponseHeaders;
+
+        $output = array_merge(
+            [
+                'status' => '',
+                'code' => '',
+                'method' => self::getMethod(),
+                'time' => number_format(microtime(true) - self::$timestart, 6),
+                'requestId' => self::getRequestId(),
+                'hash' => '',
+                'messages' => '',
+                'body' => '',
+            ],
+            $response
+        );
+
+        $response = ['headers' => $headers, 'body' => json_encode($output)];
+
+        $response = self::runFilter('output', $response);
+
+        if (!empty($response['headers'])) {
+            foreach ($response['headers'] as $header) {
+                header($header);
+            }
+        }
+
+        if (!empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+            echo '';
+        } elseif (!empty($response['body'])) {
+            echo $response['body'];
+        }
+
+        exit;
+    }
 }
