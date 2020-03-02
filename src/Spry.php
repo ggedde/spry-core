@@ -94,14 +94,14 @@ class Spry
             self::stop(5001, null, $responseCodes[5001]);
         }
 
-        if (is_string($args['config']) && file_exists($args['config'])) {
-            self::$projectPath = dirname($args['config']);
-        }
-
         self::$cli = self::isCli();
 
         // Setup Config Data Autoloader and Configure Filters
         self::configure($args['config']);
+
+        if (empty(self::$config->projectPath) && is_string($args['config']) && file_exists($args['config'])) {
+            self::$projectPath = dirname($args['config']);
+        }
 
         if (empty(self::$config->salt)) {
             $responseCodes = self::getCoreResponseCodes();
@@ -515,8 +515,6 @@ class Spry
         if (empty(self::$config->loggerProvider)) {
             self::stop(5040);
         }
-
-        $g = 55 / asdf;
 
         $class = self::$config->loggerProvider;
 
