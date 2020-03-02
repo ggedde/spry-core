@@ -67,10 +67,12 @@ class Spry
             if (empty($args) || !is_array($args)) {
                 $responseCodes = self::getCoreResponseCodes();
 
-                // Logger may not be setup so trigger php notice
-                trigger_error('Spry ERROR: '.$responseCodes[5003]);
+                $responseCode = 503;
 
-                self::stop(5003, null, $responseCodes[5003]);
+                // Logger may not be setup so trigger php notice
+                trigger_error('Spry ERROR: '.$responseCodes[$responseCode]);
+
+                self::stop($responseCode);
             }
         }
 
@@ -88,10 +90,12 @@ class Spry
         if (empty($args['config']) || (is_string($args['config']) && !file_exists($args['config']))) {
             $responseCodes = self::getCoreResponseCodes();
 
-            // Logger may not be setup so trigger php notice
-            trigger_error('Spry ERROR: '.$responseCodes[5001]);
+            $responseCode = 501;
 
-            self::stop(5001, null, $responseCodes[5001]);
+            // Logger may not be setup so trigger php notice
+            trigger_error('Spry ERROR: '.$responseCodes[$responseCode]);
+
+            self::stop($responseCode);
         }
 
         self::$cli = self::isCli();
@@ -106,10 +110,12 @@ class Spry
         if (empty(self::$config->salt)) {
             $responseCodes = self::getCoreResponseCodes();
 
-            // Logger may not be setup so trigger php notice
-            trigger_error('Spry: '.$responseCodes[5002]);
+            $responseCode = 502;
 
-            self::stop(5002, null, $responseCodes[5002]);
+            // Logger may not be setup so trigger php notice
+            trigger_error('Spry: '.$responseCodes[$responseCode]);
+
+            self::stop($responseCode);
         }
 
         // Configure Hook
@@ -210,14 +216,22 @@ class Spry
                 }
 
                 if (method_exists($class, 'getCodes')) {
-                    $codes = $class::getCodes();
-                    if (!empty($codes)) {
-                        foreach ($codes as $codeKey => $code) {
-                            if (isset(self::$config->responseCodes[$codeKey])) {
-                                trigger_error('Spry Response Code ('.$codeKey.') on Component ('.$class.') is already in use by another Component.');
-                                self::log('Spry Response Code ('.$codeKey.') on Component ('.$class.') is already in use by another Component.');
+                    $componentCodes = $class::getCodes();
+                    if (!empty($componentCodes)) {
+                        foreach ($componentCodes as $codeGroup => $codes) {
+                            if (isset(self::$config->responseCodes[$codeGroup])) {
+                                trigger_error('Spry Response Group Code ('.$codeGroup.') on Component ('.$class.') is already in use by another Component.');
+                                self::log('Spry Response Group Code ('.$codeGroup.') on Component ('.$class.') is already in use by another Component.');
                             }
-                            self::$config->responseCodes[$codeKey] = $code;
+                            if (!empty($codes) && is_array($codes)) {
+                                foreach ($codes as $codeKey => $code) {
+                                    if (isset(self::$config->responseCodes[$codeGroup][$codeKey])) {
+                                        trigger_error('Spry Response Code ('.$codeKey.') on Component ('.$class.') is already in use.');
+                                        self::log('Spry Response Code ('.$codeKey.') on Component ('.$class.') is already in use.');
+                                    }
+                                    self::$config->responseCodes[$codeGroup][$codeKey] = $code;
+                                }
+                            }
                         }
                     }
                 }
@@ -389,7 +403,7 @@ class Spry
             }
 
             if (empty(self::$routes[$path]['controller'])) {
-                self::stop(5011);
+                self::stop(511);
             }
 
             $route = self::$routes[$path];
@@ -413,7 +427,7 @@ class Spry
                 is_array($route['methods']) &&
                 !in_array(self::getMethod(), $route['methods'])
             ) {
-                self::stop(5017, $_POST); // Methoed not allowed
+                self::stop(517, $_POST); // Methoed not allowed
             }
 
             $route = self::runFilter('getRoute', $route);
@@ -421,7 +435,7 @@ class Spry
             return $route;
         }
 
-        self::stop(5011); // Request Not Found
+        self::stop(511); // Request Not Found
     }
 
     /**
@@ -487,7 +501,7 @@ class Spry
     {
         if (!self::$db) {
             if (empty(self::$config->dbProvider) || !class_exists(self::$config->dbProvider)) {
-                self::stop(5033);
+                self::stop(533);
             }
 
             $class = self::$config->dbProvider;
@@ -513,13 +527,13 @@ class Spry
     public static function log($message = '')
     {
         if (empty(self::$config->loggerProvider)) {
-            self::stop(5040);
+            self::stop(540);
         }
 
         $class = self::$config->loggerProvider;
 
         if (!class_exists($class)) {
-            self::stop(5040);
+            self::stop(540);
         }
 
         if ($message) {
@@ -560,16 +574,16 @@ class Spry
     /**
      * Kills the Request and returns immediate error.
      *
-     * @param int   $responseCode
-     * @param mixed $data
-     * @param array $messages
-     * @param array $privateData
+     * @param int|string $responseCode
+     * @param mixed      $data
+     * @param array      $messages
+     * @param array      $privateData
      *
      * @access public
      *
      * @return void
      */
-    public static function stop($responseCode = 0, $data = null, $messages = [], $privateData = null)
+    public static function stop($responseCode = '', $data = null, $messages = [], $privateData = null)
     {
         if (!empty($messages) && (is_string($messages) || is_numeric($messages))) {
             $messages = [$messages];
@@ -843,7 +857,7 @@ class Spry
                     // Skip Get Controller if Contrller not exists only for STOP
                     // As it could cause a seg fault loop
                     if (strval($hookKey) === 'stop' && !is_callable($hook['controller']) && !self::controllerExists($hook['controller'])) {
-                        $response = self::buildResponse(5016, null, is_string($hook['controller']) ? $hook['controller'] : $hookKey);
+                        $response = self::buildResponse(516, null, is_string($hook['controller']) ? $hook['controller'] : $hookKey);
                         self::sendResponse($response);
                         exit;
                     }
@@ -856,40 +870,37 @@ class Spry
     /**
      * Formats the Results given by a Controller method.
      *
-     * @param int          $responseCode
-     * @param mixed        $data
-     * @param array        $messages
-     * @param array | null $meta
+     * @param int|string $responseCodeGroup
+     * @param int|string $responseCode
+     * @param mixed      $data
+     * @param array      $messages
+     * @param array|null $meta
      *
      * @access public
      *
      * @return array
      */
-    public static function response($responseCode = 0, $data = null, $messages = [], $meta = null)
+    public static function response($responseCodeGroup = 0, $responseCode = 0, $data = null, $messages = [], $meta = null)
     {
-        $responseCode = strval($responseCode);
+        $responseCodeGroup = trim(strval($responseCodeGroup));
+        $responseCode = trim(strval($responseCode));
 
+        // print_r(debug_backtrace(0, 2));
         if (strlen($responseCode) < 2) {
-            $responseCode = '00'.$responseCode;
-        }
-
-        if (strlen($responseCode) < 3) {
             $responseCode = '0'.$responseCode;
         }
 
-        if (strlen($responseCode) > 3) {
-            return self::buildResponse($responseCode, $data, $messages, $meta);
+        if (strlen($responseCode) > 2) {
+            $type = '';
+        } elseif (!empty($data) || 0 === $data) {
+            $type = '2';
+        } elseif (empty($data) && !is_null($data) && 0 !== $data) {
+            $type = '4';
+        } else {
+            $type = '5';
         }
 
-        if (!empty($data) || 0 === $data) {
-            return self::buildResponse('2'.$responseCode, $data, $messages, $meta);
-        }
-
-        if (empty($data) && !is_null($data) && 0 !== $data) {
-            return self::buildResponse('4'.$responseCode, $data, $messages, $meta);
-        }
-
-        return self::buildResponse('5'.$responseCode, null, $messages, $meta);
+        return self::buildResponse($responseCodeGroup.'-'.$type.$responseCode, $data, $messages, $meta);
     }
 
     /**
@@ -921,45 +932,49 @@ class Spry
     private static function getCoreResponseCodes()
     {
         return [
-            2000 => 'Success!',
-            4000 => 'No Results',
-            5000 => 'Error: Unknown Error',
-            5001 => 'Error: Missing Config File',
-            5002 => 'Error: Missing Salt in Config File',
-            5003 => 'Error: Unknown configuration error on run',
+            0 => [
+                /* Initial Config */
+                200 => 'Success!',
+                400 => 'Unknown Results',
+                500 => 'Error: Unknown Error',
+                501 => 'Error: Missing Config File',
+                502 => 'Error: Missing Salt in Config File',
+                503 => 'Error: Unknown configuration error on run',
 
-            5011 => 'Error: Route Not Found.',
-            5012 => 'Error: Class Not Found.',
-            5013 => 'Error: Class Method Not Found.',
-            5014 => 'Error: Returned Data is not in JSON format.',
-            5015 => 'Error: Class Method is not Callable. Make sure it is Public.',
-            5016 => 'Error: Controller Not Found.',
-            5017 => 'Error: Method not allowed by Route.',
+                /* Routes, Paths, Controllers */
+                511 => 'Error: Route Not Found.',
+                512 => 'Error: Class Not Found.',
+                513 => 'Error: Class Method Not Found.',
+                514 => 'Error: Returned Data is not in JSON format.',
+                515 => 'Error: Class Method is not Callable. Make sure it is Public.',
+                516 => 'Error: Controller Not Found.',
+                517 => 'Error: Method not allowed by Route.',
 
-            5020 => 'Error: Field did not Validate.',
+                /* DB */
+                520 => 'Error: Field did not Validate.',
 
-            /* DB */
-            2030 => 'Database Migrate Ran Successfully',
-            5030 => 'Error: Database Migrate had an Error',
-            5031 => 'Error: Database Connect Error.',
-            5032 => 'Error: Missing Database Credentials from config.',
-            5033 => 'Error: Database Provider not found.',
+                /* DB */
+                230 => 'Database Migrate Ran Successfully',
+                530 => 'Error: Database Migrate had an Error',
+                531 => 'Error: Database Connect Error.',
+                532 => 'Error: Missing Database Credentials from config.',
+                533 => 'Error: Database Provider not found.',
 
-            /* Log */
-            5040 => 'Error: Log Provider not found.',
+                /* Log */
+                540 => 'Error: Log Provider not found.',
 
-            /* Tests */
-            2050 => 'Test Passed Successfully',
-            5050 => 'Error: Test Failed',
-            5051 => 'Error: Retrieving Tests',
-            5052 => 'Error: No Tests Configured',
-            5053 => 'Error: No Test with that name Configured',
+                /* Tests */
+                250 => 'Test Passed Successfully',
+                550 => 'Error: Test Failed',
+                551 => 'Error: Retrieving Tests',
+                552 => 'Error: No Tests Configured',
+                553 => 'Error: No Test with that name Configured',
 
-            /* Background Process */
-            5060 => 'Error: Background Process did not return Process ID',
-            5061 => 'Error: Background Process could not find autoload',
-            5062 => 'Error: Unknown response from Background Process',
-
+                /* Background Process */
+                560 => 'Error: Background Process did not return Process ID',
+                561 => 'Error: Background Process could not find autoload',
+                562 => 'Error: Unknown response from Background Process',
+            ],
         ];
     }
 
@@ -993,8 +1008,16 @@ class Spry
      */
     private static function responseType($code = '')
     {
+        $pos = strpos($code, '-');
+
+        if (false !== $pos) {
+            $code = substr($code, ($pos + 1));
+        }
+
         if (!empty($code) && is_numeric($code)) {
             switch (substr($code, 0, 1)) {
+                case 1:
+                    return 'info';
                 case 2:
                 case 4:
                     return 'success';
@@ -1010,44 +1033,46 @@ class Spry
     /**
      * Sets all the response Codes available for the App.
      *
-     * @param int $code
+     * @param int|string $code
      *
      * @access private
      *
      * @return array
      */
-    private static function responseCodes($code = 0)
+    private static function responseCodes($code = '')
     {
         $lang = 'en';
-        $type = 4;
 
         if (self::params('lang')) {
             $lang = self::params('lang');
         }
 
-        if (strlen($code)) {
-            $type = substr($code, 0, 1);
+        $group = 0;
+        $code = trim(strval($code));
+
+        if ($pos = strpos($code, '-')) {
+            $group = substr($code, 0, $pos);
+            $code = substr($code, ($pos + 1));
         }
 
         $codes = self::$config->responseCodes;
 
-        if (isset($codes[$code][$lang])) {
-            $response = $codes[$code][$lang];
-        } elseif (isset($codes[$code]) && is_string($codes[$code])) {
-            $response = $codes[$code];
-        } elseif (intval($type) === 4 && isset($codes[4000][$lang])) {
-            $code = 4000;
-            $response = $codes[$code][$lang];
-        } elseif (intval($type) === 4 && isset($codes[4000])) {
-            $code = 4000;
-            $response = $codes[$code];
-        } elseif (intval($type) === 4 && isset($codes[4000]) && is_string($codes[4000])) {
-            $code = 4000;
-            $response = $codes[$code];
+        if (isset($codes[$group][$code][$lang]) && is_string($codes[$group][$code][$lang])) {
+            $response = $codes[$group][$code][$lang];
+        } elseif (isset($codes[$group][$code]) && is_string($codes[$group][$code])) {
+            $response = $codes[$group][$code];
+        } elseif (isset($codes['400'][$lang]) && is_string($codes['400'][$lang])) {
+            $code = '400';
+            $response = $codes[$group][$code][$lang];
+        } elseif (isset($codes['400']) && is_string($codes['400'])) {
+            $code = '400';
+            $response = $codes[$group][$code];
         }
 
+        $code = $group.'-'.$code;
+
         if (!empty($response)) {
-            return ['status' => self::responseType($code), 'code' => (int) $code, 'messages' => [$response]];
+            return ['status' => self::responseType($code), 'code' => $code, 'messages' => [$response]];
         }
 
         return ['status' => 'unknown', 'code' => $code, 'messages' => ['Unkown Response Code']];
@@ -1488,7 +1513,7 @@ class Spry
         }
 
         if (!empty($data) && !is_array($data)) {
-            self::stop(5014); // Returned Data is not in JSON format
+            self::stop(514); // Returned Data is not in JSON format
         }
 
         return $data;
@@ -1540,12 +1565,14 @@ class Spry
                         return ['class' => $path.$class, 'method' => $method];
                     }
 
+                    $responseCode = 513;
+
                     // No Method for that Class
                     self::sendOutput(
                         [
                             'status' => 'error',
-                            'code' => 5013,
-                            'messages' => [$responseCodes[5013],
+                            'code' => $responseCode,
+                            'messages' => [$responseCodes[$responseCode],
                                 $path.$class.'::'.$method, ],
                         ],
                         false
@@ -1553,20 +1580,24 @@ class Spry
                 }
             }
 
+            $responseCode = 512;
+
             // No Classes Found
             self::sendOutput([
                 'status' => 'error',
-                'code' => 5012,
-                'messages' => [$responseCodes[5012],
+                'code' => $responseCode,
+                'messages' => [$responseCodes[$responseCode],
                     $class, ],
             ], false);
         }
 
+        $responseCode = 516;
+
         // No Controller
         self::sendOutput([
             'status' => 'error',
-            'code' => 5016,
-            'messages' => [$responseCodes[5016],
+            'code' => $responseCode,
+            'messages' => [$responseCodes[$responseCode],
                 $controller, ],
         ], false);
     }
@@ -1574,7 +1605,7 @@ class Spry
     /**
      * Formats the Response before given to the Output Method
      *
-     * @param int          $responseCode
+     * @param int|string   $responseCode
      * @param mixed        $data
      * @param mixed        $messages
      * @param array | null $meta
@@ -1583,8 +1614,9 @@ class Spry
      *
      * @return array
      */
-    private static function buildResponse($responseCode = 0, $data = null, $messages = [], $meta = null)
+    private static function buildResponse($responseCode = '', $data = null, $messages = [], $meta = null)
     {
+        $responseCode = trim(strval($responseCode));
         $response = self::responseCodes($responseCode);
 
         if (!is_null($data)) {
@@ -1637,7 +1669,7 @@ class Spry
         }
 
         if (!is_callable(array($controller['class'], $controller['method']))) {
-            self::stop(5015, null, $controller['class'].'::'.$controller['method']);
+            self::stop(515, null, $controller['class'].'::'.$controller['method']);
         }
 
         if ($options) {
