@@ -29,7 +29,6 @@ class Spry
     private static $hooks = [];
     private static $params = [];
     private static $path = null;
-    private static $projectPath = '';
     private static $requestId = '';
     private static $route = null;
     private static $routes = [];
@@ -104,7 +103,7 @@ class Spry
         self::configure($args['config']);
 
         if (empty(self::$config->projectPath) && is_string($args['config']) && file_exists($args['config'])) {
-            self::$projectPath = dirname($args['config']);
+            self::$config->projectPath = dirname($args['config']);
         }
 
         if (empty(self::$config->salt)) {
@@ -269,7 +268,7 @@ class Spry
      */
     public static function getProjectPath()
     {
-        return self::$projectPath;
+        return self::$config->projectPath;
     }
 
     /**
