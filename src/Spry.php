@@ -810,7 +810,7 @@ class Spry
     public static function runFilter($filterKey = null, $data = null)
     {
         if (!empty(self::$filters[$filterKey]) && is_array(self::$filters[$filterKey])) {
-            array_multisort(array_column($data, 'order'), SORT_ASC, self::$filters[$filterKey]);
+            array_multisort(array_column(self::$filters[$filterKey], 'order'), SORT_ASC, self::$filters[$filterKey]);
             foreach (self::$filters[$filterKey] as $filter) {
                 if (!empty($filter['controller'])) {
                     $data = self::getResponse(self::getController($filter['controller']), $data, $filter['extraData'] ?? null);
@@ -852,7 +852,7 @@ class Spry
     public static function runHook($hookKey = null, $data = null)
     {
         if (!empty(self::$hooks[$hookKey]) && is_array(self::$hooks[$hookKey])) {
-            array_multisort(array_column($data, 'order'), SORT_ASC, self::$hooks[$hookKey]);
+            array_multisort(array_column(self::$hooks[$hookKey], 'order'), SORT_ASC, self::$hooks[$hookKey]);
             foreach (self::$hooks[$hookKey] as $hook) {
                 if (!empty($hook['controller'])) {
                     // Skip Get Controller if Contrller not exists only for STOP
