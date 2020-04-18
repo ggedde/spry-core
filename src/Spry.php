@@ -27,6 +27,7 @@ class Spry
     private static $db = null;
     private static $filters = [];
     private static $hooks = [];
+    private static $meta = [];
     private static $params = [];
     private static $path = null;
     private static $requestId = '';
@@ -35,7 +36,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = "1.0.5";
+    private static $version = "1.0.6";
 
     /**
      * Initiates the API Call.
@@ -82,6 +83,7 @@ class Spry
                 'path' => '',
                 'controller' => '',
                 'params' => null,
+                'meta' => [],
             ],
             $args
         );
@@ -98,6 +100,12 @@ class Spry
         }
 
         self::$cli = self::isCli();
+
+        if (empty($args['meta']) || !is_array($args['meta'])) {
+            $args['meta'] = [];
+        }
+
+        self::$meta = $args['meta'];
 
         // Setup Config Data Autoloader and Configure Filters
         self::configure($args['config']);
@@ -147,9 +155,10 @@ class Spry
         }
 
         if (self::$cli) {
-            $response = self::getResponse($controller, self::$params);
+            $response = self::getResponse($controller, self::$params, self::$meta);
         } else {
-            $response = self::getResponse($controller, self::validateParams());
+            $responseParams = self::validateParams();
+            $response = self::getResponse($controller, $responseParams['params'], $responseParams['meta']);
         }
 
         self::sendResponse($response);
@@ -412,6 +421,18 @@ class Spry
         }
 
         return $publicRoutes;
+    }
+
+    /**
+     * Returns the Meta set in the request.
+     *
+     * @access public
+     *
+     * @return array
+     */
+    public static function getMeta()
+    {
+        return self::$meta;
     }
 
     /**
@@ -1205,12 +1226,12 @@ class Spry
         }
 
         if (empty($route['params'])) {
-            $newParams = $params;
+            $newParams = ['params' => $params, 'meta' => []];
         } else {
-            $newParams = [];
+            $newParams = ['params' => [], 'meta' => []];
 
             if (!empty($params['test_data'])) {
-                $newParams['test_data'] = $params['test_data'];
+                $newParams['params']['test_data'] = $params['test_data'];
             }
 
             $messageFields = [
@@ -1484,22 +1505,28 @@ class Spry
                 if (!empty($paramSettings['validateOnly'])) {
                     $validator->validate($paramKey);
                 } else {
-                    $newParams[$paramKey] = $validator->validate($paramKey);
+                    $newParamValue = $validator->validate($paramKey);
 
-                    if (is_array($newParams[$paramKey]) || is_object($newParams[$paramKey])) {
+                    if (is_array($newParamValue) || is_object($newParamValue)) {
                         if (!empty($paramSettings['trim'])) {
-                            $newParams[$paramKey] = array_values(
-                                array_filter(array_map('trim', $newParams[$paramKey]))
+                            $newParamValue = array_values(
+                                array_filter(array_map('trim', $newParamValue))
                             );
                         }
 
                         if (!empty($paramSettings['unique'])) {
-                            $newParams[$paramKey] = array_values(array_unique($newParams[$paramKey]));
+                            $newParamValue = array_values(array_unique($newParamValue));
                         }
                     } else {
                         if (!empty($paramSettings['trim'])) {
-                            $newParams[$paramKey] = trim($newParams[$paramKey]);
+                            $newParamValue = trim($newParamValue);
                         }
+                    }
+
+                    if (!empty($paramSettings['meta'])) {
+                        $newParams['meta'][$paramKey] = $newParamValue;
+                    } else {
+                        $newParams['params'][$paramKey] = $newParamValue;
                     }
                 }
             }
