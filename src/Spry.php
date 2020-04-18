@@ -35,7 +35,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = "1.0.4";
+    private static $version = "1.0.5";
 
     /**
      * Initiates the API Call.
@@ -177,65 +177,20 @@ class Spry
      */
     public static function getComponents()
     {
+        $components = [];
         if (!empty(self::$config->componentsDir) && is_dir(self::$config->componentsDir)) {
             foreach (glob(rtrim(self::$config->componentsDir, '/').'/*') as $file) {
                 $componentName = str_replace('.php', '', basename($file));
                 $class = '\\Spry\\SpryComponent\\'.$componentName;
-                include_once $file;
-
-                if (method_exists($class, 'setup')) {
-                    $class::setup();
-                }
-
-                if (method_exists($class, 'getRoutes')) {
-                    $routes = $class::getRoutes();
-                    if (!empty($routes)) {
-                        foreach ($routes as $routeKey => $route) {
-                            self::$config->routes[$routeKey] = $route;
-                        }
-                    }
-                }
-
-                if (method_exists($class, 'getSchema')) {
-                    $schemas = $class::getSchema();
-                    if (!empty($schemas)) {
-                        foreach ($schemas as $schemaKey => $schema) {
-                            self::$config->db['schema']['tables'][$schemaKey] = $schema;
-                        }
-                    }
-                }
-
-                if (method_exists($class, 'getTests')) {
-                    $tests = $class::getTests();
-                    if (!empty($tests)) {
-                        foreach ($tests as $testKey => $test) {
-                            self::$config->tests[$testKey] = $test;
-                        }
-                    }
-                }
-
-                if (method_exists($class, 'getCodes')) {
-                    $componentCodes = $class::getCodes();
-                    if (!empty($componentCodes)) {
-                        foreach ($componentCodes as $codeGroup => $codes) {
-                            if (isset(self::$config->responseCodes[$codeGroup])) {
-                                trigger_error('Spry Response Group Code ('.$codeGroup.') on Component ('.$class.') is already in use by another Component.');
-                                self::log('Spry Response Group Code ('.$codeGroup.') on Component ('.$class.') is already in use by another Component.');
-                            }
-                            if (!empty($codes) && is_array($codes)) {
-                                foreach ($codes as $codeKey => $code) {
-                                    if (isset(self::$config->responseCodes[$codeGroup][$codeKey])) {
-                                        trigger_error('Spry Response Code ('.$codeKey.') on Component ('.$class.') is already in use.');
-                                        self::log('Spry Response Code ('.$codeKey.') on Component ('.$class.') is already in use.');
-                                    }
-                                    self::$config->responseCodes[$codeGroup][$codeKey] = $code;
-                                }
-                            }
-                        }
-                    }
-                }
+                $components[] = [
+                    'name' => $componentName,
+                    'class' => $class,
+                    'file' => $file,
+                ];
             }
         }
+
+        return $components;
     }
 
     /**
@@ -345,7 +300,7 @@ class Spry
         // Set AutoLoaders for Components, Providers and Plugins
         spl_autoload_register(array(__CLASS__, 'autoloader'));
 
-        self::getComponents();
+        self::loadComponents();
 
         // Configure Filter
         self::$config = self::runFilter('configure', self::$config);
@@ -492,11 +447,13 @@ class Spry
     /**
      * Returns DB Provider.
      *
+     * @param array $meta
+     *
      * @access public
      *
      * @return \Spry\SpryProvider\SpryDB
      */
-    public static function db()
+    public static function db($meta = [])
     {
         if (!self::$db) {
             if (empty(self::$config->dbProvider) || !class_exists(self::$config->dbProvider)) {
@@ -511,7 +468,7 @@ class Spry
             self::runHook('database');
         }
 
-        return self::$db;
+        return self::$db->meta($meta);
     }
 
     /**
@@ -573,10 +530,10 @@ class Spry
     /**
      * Kills the Request and returns immediate error.
      *
-     * @param int|string $responseCode
-     * @param mixed      $data
-     * @param array      $messages
-     * @param array      $privateData
+     * @param int|string|array $responseCode
+     * @param mixed            $data
+     * @param array            $messages
+     * @param array            $privateData
      *
      * @access public
      *
@@ -772,8 +729,8 @@ class Spry
      */
     public static function getBody($result)
     {
-        if (!empty($result['status']) && $result['status'] === 'success' && isset($result['body'])) {
-            return $result['body'];
+        if (!empty($result->status) && $result->status === 'success' && isset($result->body)) {
+            return $result->body;
         }
 
         return null;
@@ -782,23 +739,31 @@ class Spry
     /**
      * Adds Hook to Spry Hooks
      *
-     * @param string $filterKey
-     * @param mixed  $controller
-     * @param array  $extraData
-     * @param int    $order
+     * @param string|array $filterKey
+     * @param mixed        $controller
+     * @param array        $extraData
+     * @param int          $order
      *
      * @return mixed
      */
     public static function addFilter($filterKey = '', $controller = null, $extraData = [], $order = 0)
     {
-        if (empty(self::$filters[$filterKey]) || !is_array(self::$filters[$filterKey])) {
-            self::$filters[$filterKey] = [];
+        $filterKeys = $filterKey;
+
+        if (!is_array($filterKeys)) {
+            $filterKeys = [$filterKey];
         }
-        self::$filters[$filterKey][] = [
-            'controller' => $controller,
-            'extraData' => $extraData,
-            'order' => $order,
-        ];
+
+        foreach ($filterKeys as $filterKey) {
+            if (empty(self::$filters[$filterKey]) || !is_array(self::$filters[$filterKey])) {
+                self::$filters[$filterKey] = [];
+            }
+            self::$filters[$filterKey][] = [
+                'controller' => $controller,
+                'extraData' => $extraData,
+                'order' => $order,
+            ];
+        }
     }
 
     /**
@@ -833,14 +798,22 @@ class Spry
      */
     public static function addHook($hookKey = '', $controller = null, $extraData = [], $order = 0)
     {
-        if (empty(self::$hooks[$hookKey]) || !is_array(self::$hooks[$hookKey])) {
-            self::$hooks[$hookKey] = [];
+        $hookKeys = $hookKey;
+
+        if (!is_array($hookKeys)) {
+            $hookKeys = [$hookKey];
         }
-        self::$hooks[$hookKey][] = [
-            'controller' => $controller,
-            'extraData' => $extraData,
-            'order' => $order,
-        ];
+
+        foreach ($hookKeys as $hookKey) {
+            if (empty(self::$hooks[$hookKey]) || !is_array(self::$hooks[$hookKey])) {
+                self::$hooks[$hookKey] = [];
+            }
+            self::$hooks[$hookKey][] = [
+                'controller' => $controller,
+                'extraData' => $extraData,
+                'order' => $order,
+            ];
+        }
     }
 
     /**
@@ -871,20 +844,24 @@ class Spry
     /**
      * Formats the Results given by a Controller method.
      *
-     * @param int|string $responseCodeGroup
-     * @param int|string $responseCode
-     * @param mixed      $data
-     * @param array      $messages
-     * @param array|null $meta
+     * @param int|string|array $responseCode
+     * @param mixed            $data
+     * @param array            $messages
+     * @param array|null       $meta
      *
      * @access public
      *
      * @return array
      */
-    public static function response($responseCodeGroup = 0, $responseCode = 0, $data = null, $messages = [], $meta = null)
+    public static function response($responseCode = 0, $data = null, $messages = [], $meta = null)
     {
-        $responseCodeGroup = trim(strval($responseCodeGroup));
-        $responseCode = trim(strval($responseCode));
+        if (is_array($responseCode)) {
+            $responseCodeGroup = trim(strval($responseCode[0]));
+            $responseCode = trim(strval($responseCode[1]));
+        } else {
+            $responseCodeGroup = '0';
+            $responseCode = trim(strval($responseCode));
+        }
 
         // print_r(debug_backtrace(0, 2));
         if (strlen($responseCode) < 2) {
@@ -893,9 +870,11 @@ class Spry
 
         if (strlen($responseCode) > 2) {
             $type = '';
-        } elseif (!empty($data) || 0 === $data) {
+        } elseif (empty($data) && is_array($data)) {
+            $type = '1';
+        } elseif (!empty($data) || 0 === $data || '0' === $data) {
             $type = '2';
-        } elseif (empty($data) && !is_null($data) && 0 !== $data) {
+        } elseif (empty($data) && !is_null($data) && 0 !== $data && '0' !== $data) {
             $type = '4';
         } else {
             $type = '5';
@@ -916,13 +895,85 @@ class Spry
      */
     public static function sendResponse($response = array())
     {
-        if (empty($response['status']) || empty($response['code'])) {
+        if (empty($response->status) || empty($response->code)) {
             $response = self::buildResponse('', $response);
         }
 
         $response = self::runFilter('response', $response);
 
         self::sendOutput($response);
+    }
+
+    /**
+     * Loads the components
+     *
+     * @access public
+     *
+     * @return string
+     */
+    private static function loadComponents()
+    {
+        foreach (self::getComponents() as $component) {
+            $class = $component['class'];
+
+            if (method_exists($class, 'setup')) {
+                $class::setup();
+            }
+
+            if (method_exists($class, 'getRoutes')) {
+                $routes = $class::getRoutes();
+                if (!empty($routes)) {
+                    foreach ($routes as $routeKey => $route) {
+                        self::$config->routes[$routeKey] = $route;
+                    }
+                }
+            }
+
+            if (method_exists($class, 'getSchema')) {
+                $schemas = $class::getSchema();
+                if (!empty($schemas)) {
+                    foreach ($schemas as $schemaKey => $schema) {
+                        self::$config->db['schema']['tables'][$schemaKey] = $schema;
+                    }
+                }
+            }
+
+            if (method_exists($class, 'getTests')) {
+                $tests = $class::getTests();
+                if (!empty($tests)) {
+                    foreach ($tests as $testKey => $test) {
+                        self::$config->tests[$testKey] = $test;
+                    }
+                }
+            }
+
+            if (method_exists($class, 'getCodes')) {
+                $componentCodes = $class::getCodes();
+                if (!method_exists($class, 'getId')) {
+                    trigger_error('Spry Response - Component ('.$class.') Method getId() Missing.');
+                    self::log('Spry Response - Component ('.$class.') Method getId() Missing.');
+                } else {
+                    $codeGroup = $class::getId();
+                    if (!empty($componentCodes)) {
+                        // foreach ($componentCodes as $codes) {
+                        if (isset(self::$config->responseCodes[$codeGroup])) {
+                            trigger_error('Spry Response - Group Code ('.$codeGroup.') on Component ('.$class.') is already in use by another Component.');
+                            self::log('Spry Response - Group Code ('.$codeGroup.') on Component ('.$class.') is already in use by another Component.');
+                        }
+                        if (!empty($componentCodes) && is_array($componentCodes)) {
+                            foreach ($componentCodes as $codeKey => $code) {
+                                if (isset(self::$config->responseCodes[$codeGroup][$codeKey])) {
+                                    trigger_error('Spry Response - Code ('.$codeKey.') on Component ('.$class.') is already in use.');
+                                    self::log('Spry Response - Code ('.$codeKey.') on Component ('.$class.') is already in use.');
+                                }
+                                self::$config->responseCodes[$codeGroup][$codeKey] = $code;
+                            }
+                        }
+                        // }
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -935,6 +986,7 @@ class Spry
         return [
             0 => [
                 /* Initial Config */
+                100 => 'Empty Results',
                 200 => 'Success!',
                 400 => 'Unknown Results',
                 500 => 'Error: Unknown Error',
@@ -1016,13 +1068,11 @@ class Spry
         }
 
         if (!empty($code) && is_numeric($code)) {
-            switch (substr($code, 0, 1)) {
+            switch (intval(substr($code, 0, 1))) {
                 case 1:
-                    return 'info';
                 case 2:
-                case 4:
                     return 'success';
-
+                case 4:
                 case 5:
                     return 'error';
             }
@@ -1032,7 +1082,7 @@ class Spry
     }
 
     /**
-     * Sets all the response Codes available for the App.
+     * Gets a response by the code
      *
      * @param int|string $code
      *
@@ -1040,7 +1090,7 @@ class Spry
      *
      * @return array
      */
-    private static function responseCodes($code = '')
+    private static function getResponseByCode($code = '')
     {
         $lang = 'en';
 
@@ -1048,8 +1098,14 @@ class Spry
             $lang = self::params('lang');
         }
 
-        $group = 0;
-        $code = trim(strval($code));
+        if (is_array($code)) {
+            $group = $code[0];
+            $code = $code[1];
+            $code = trim(strval($group)).'-'.trim(strval($code));
+        } else {
+            $group = 0;
+            $code = trim(strval($code));
+        }
 
         if ($pos = strpos($code, '-')) {
             $group = substr($code, 0, $pos);
@@ -1072,11 +1128,20 @@ class Spry
 
         $code = $group.'-'.$code;
 
+        $responseObject = (object) [
+            'status' => 'unknown',
+            'code' => $code,
+            'messages' => ['Unkown Response Code'],
+            'meta' => [],
+            'body' => null,
+        ];
+
         if (!empty($response)) {
-            return ['status' => self::responseType($code), 'code' => $code, 'messages' => [$response]];
+            $responseObject->status = self::responseType($code);
+            $responseObject->messages = [$response];
         }
 
-        return ['status' => 'unknown', 'code' => $code, 'messages' => ['Unkown Response Code']];
+        return $responseObject;
     }
 
     /**
@@ -1563,7 +1628,11 @@ class Spry
             foreach ($paths as $path) {
                 if (class_exists($path.$class)) {
                     if (method_exists($path.$class, $method)) {
-                        return ['class' => $path.$class, 'method' => $method];
+                        if (method_exists($path.$class, 'getId')) {
+                            $id = call_user_func(array($path.$class, 'getId'));
+                        }
+
+                        return ['id' => (!empty($id) ? $id : null), 'class' => $path.$class, 'method' => $method];
                     }
 
                     $responseCode = 513;
@@ -1606,10 +1675,10 @@ class Spry
     /**
      * Formats the Response before given to the Output Method
      *
-     * @param int|string   $responseCode
-     * @param mixed        $data
-     * @param mixed        $messages
-     * @param array | null $meta
+     * @param int|string|array $responseCode
+     * @param mixed            $data
+     * @param mixed            $messages
+     * @param array|null       $meta
      *
      * @access private
      *
@@ -1617,12 +1686,17 @@ class Spry
      */
     private static function buildResponse($responseCode = '', $data = null, $messages = [], $meta = null)
     {
-        $responseCode = trim(strval($responseCode));
-        $response = self::responseCodes($responseCode);
+        $response = self::getResponseByCode($responseCode);
 
         if (!is_null($data)) {
-            $response['hash'] = md5($responseCode.serialize($data));
-            $response['body'] = $data;
+            if (is_array($responseCode)) {
+                $group = $responseCode[0];
+                $code = $responseCode[1];
+                $responseCode = trim(strval($group)).'-'.trim(strval($code));
+            }
+
+            $response->hash = md5($responseCode.serialize($data));
+            $response->body = $data;
         }
 
         if (!empty($messages) && (is_string($messages) || is_numeric($messages))) {
@@ -1630,12 +1704,12 @@ class Spry
         }
 
         if (!empty($messages)) {
-            $response['messages'] = array_merge($response['messages'], $messages);
+            $response->messages = array_merge($response->messages, $messages);
         }
 
         if (!empty($meta) && is_array($meta)) {
             foreach ($meta as $key => $value) {
-                $response[$key] = $value;
+                $response->meta[$key] = $value;
             }
         }
 
@@ -1649,17 +1723,17 @@ class Spry
      *
      * @param array $controller
      * @param null  $params     Params as Filtered items or from hook
-     * @param array $options    Options sent from Filter or Hook
+     * @param array $meta       Meta sent from Filter or Hook
      *
      * @access private
      *
      * @return mixed
      */
-    private static function getResponse($controller = array(), $params = null, $options = null)
+    private static function getResponse($controller = array(), $params = null, $meta = null)
     {
         if (isset($controller['function']) && is_callable($controller['function'])) {
-            if ($options) {
-                return call_user_func($controller['function'], $params, $options);
+            if ($meta) {
+                return call_user_func($controller['function'], $params, $meta);
             }
 
             if ($params) {
@@ -1673,8 +1747,8 @@ class Spry
             self::stop(515, null, $controller['class'].'::'.$controller['method']);
         }
 
-        if ($options) {
-            return call_user_func(array($controller['class'], $controller['method']), $params, $options);
+        if ($meta) {
+            return call_user_func(array($controller['class'], $controller['method']), $params, $meta);
         }
 
         if ($params) {
@@ -1714,9 +1788,10 @@ class Spry
                 'requestId' => self::getRequestId(),
                 'hash' => '',
                 'messages' => '',
-                'body' => '',
+                'meta' => [],
+                'body' => null,
             ],
-            $response
+            (array) $response
         );
 
         $response = ['headers' => $headers, 'body' => json_encode($output)];
