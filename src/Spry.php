@@ -34,7 +34,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = "1.0.7";
+    private static $version = "1.0.8";
 
     /**
      * Initiates the API Call.
@@ -578,16 +578,7 @@ class Spry
      */
     public static function stop($responseCode = 0, $responseStatus = null, $data = null, $additionalMessages = [], $privateData = null)
     {
-        if (!is_array($responseCode)) {
-            $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2);
-            if (!empty($trace[1]['class']) && strpos($trace[1]['class'], 'SpryComponent') !== false) {
-                $class = $trace[1]['class'];
-                if (!method_exists($class, 'getId')) {
-                    self::stop(15, null, null, null, 'Class ('.$class.') Missing  Method: getId()');
-                }
-                $responseCode = [$class::getId(), $responseCode];
-            }
-        }
+        $responseCode = self::getTracedResponseCode($responseCode);
 
         $response = self::buildResponse($data, $responseCode, $responseStatus, null, $additionalMessages);
 
@@ -895,16 +886,7 @@ class Spry
      */
     public static function response($data = null, $responseCode = 0, $responseStatus = null, $meta = null, $additionalMessages = [])
     {
-        if (!is_array($responseCode)) {
-            $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2);
-            if (!empty($trace[1]['class']) && strpos($trace[1]['class'], 'SpryComponent') !== false) {
-                $class = $trace[1]['class'];
-                if (!method_exists($class, 'getId')) {
-                    self::stop(15, null, null, null, 'Class ('.$class.') Missing Method: getId()');
-                }
-                $responseCode = [$class::getId(), $responseCode];
-            }
-        }
+        $responseCode = self::getTracedResponseCode($responseCode);
 
         $response = self::buildResponse($data, $responseCode, $responseStatus, $meta, $additionalMessages);
 
@@ -931,6 +913,32 @@ class Spry
         }
 
         self::sendOutput($response);
+    }
+
+    /**
+     * Backtrace the Components to get ResponseCode Compnent Group
+     *
+     * @param array $responseCode
+     *
+     * @access private
+     *
+     * @return string
+     */
+    private static function getTracedResponseCode($responseCode)
+    {
+        if (!is_array($responseCode)) {
+            $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3);
+            if (!empty($trace[2]['class']) && strpos($trace[2]['class'], 'SpryComponent') !== false) {
+                $class = $trace[2]['class'];
+                if (!method_exists($class, 'getId')) {
+                    trigger_error('Response Code ('.$responseCode.') missing Group ID and Class ('.$class.') Missing Method: getId(). This may result in wrong Response Code being returned. To ignore this make sure to change the responseCode to array with GroupId as first parameter and code as second parameter.');
+                } else {
+                    $responseCode = [$class::getId(), $responseCode];
+                }
+            }
+        }
+
+        return $responseCode;
     }
 
     /**
@@ -978,27 +986,28 @@ class Spry
 
             if (method_exists($class, 'getCodes')) {
                 $componentCodes = $class::getCodes();
-                if (!method_exists($class, 'getId')) {
-                    // trigger_error('Spry Response - Component ('.$class.') Method getId() Missing.');
-                    self::log('Spry Response - Component ('.$class.') Method getId() Missing.');
-                } else {
-                    $codeGroup = $class::getId();
-                    if (!empty($componentCodes)) {
-                        // foreach ($componentCodes as $codes) {
+                if (!empty($componentCodes)) {
+                    if (!method_exists($class, 'getId')) {
+                        $errorMessage = 'To register Response Codes a Component must include a getId() method with a unique id returned. Component ('.$class.') missing method getId()';
+                        trigger_error('Spry Error - '.$errorMessage);
+                        self::log()->error($errorMessage);
+                    } else {
+                        $codeGroup = $class::getId();
                         if (isset(self::$config->responseCodes[$codeGroup])) {
-                            trigger_error('Spry Response - Group Code ('.$codeGroup.') on Component ('.$class.') is already in use by another Component.');
-                            self::log('Spry Response - Group Code ('.$codeGroup.') on Component ('.$class.') is already in use by another Component.');
+                            $errorMessage = 'Group Code ('.$codeGroup.') on Component ('.$class.') is already in use by another Component.';
+                            trigger_error('Spry Error - '.$errorMessage);
+                            self::log()->error($errorMessage);
                         }
                         if (!empty($componentCodes) && is_array($componentCodes)) {
                             foreach ($componentCodes as $codeKey => $code) {
                                 if (isset(self::$config->responseCodes[$codeGroup][$codeKey])) {
-                                    trigger_error('Spry Response - Code ('.$codeKey.') on Component ('.$class.') is already in use.');
-                                    self::log('Spry Response - Code ('.$codeKey.') on Component ('.$class.') is already in use.');
+                                    $errorMessage = 'Code ('.$codeKey.') on Component ('.$class.') is already in use.';
+                                    trigger_error('Spry Error - '.$errorMessage);
+                                    self::log()->error($errorMessage);
                                 }
                                 self::$config->responseCodes[$codeGroup][$codeKey] = $code;
                             }
                         }
-                        // }
                     }
                 }
             }
@@ -1701,11 +1710,7 @@ class Spry
             foreach ($paths as $path) {
                 if (class_exists($path.$class)) {
                     if (method_exists($path.$class, $method)) {
-                        if (method_exists($path.$class, 'getId')) {
-                            $id = call_user_func(array($path.$class, 'getId'));
-                        }
-
-                        return ['id' => (!empty($id) ? $id : null), 'class' => $path.$class, 'method' => $method];
+                        return ['class' => $path.$class, 'method' => $method];
                     }
 
                     $responseCode = 13;
