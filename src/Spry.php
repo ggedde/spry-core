@@ -34,7 +34,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = "1.0.8";
+    private static $version = "1.0.9";
 
     /**
      * Initiates the API Call.
@@ -137,12 +137,14 @@ class Spry
 
         self::setRoutes();
 
-        self::setParams(self::fetchParams($args['params']));
+        $params = self::fetchParams($args['params']);
 
         // IF Test Data then set currnt transaction as Test
-        if (!empty(self::$params['test_data'])) {
+        if (!empty($params['test_data'])) {
             self::$test = true;
         }
+
+        self::setParams($params);
 
         if ($args['controller']) {
             $controller = self::getController($args['controller']);
