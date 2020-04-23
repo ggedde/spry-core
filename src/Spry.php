@@ -34,7 +34,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = "1.0.9";
+    private static $version = "1.0.10";
 
     /**
      * Initiates the API Call.
@@ -121,9 +121,6 @@ class Spry
 
             self::stop($responseCode);
         }
-
-        // Configure Hook
-        // self::runHook('configure');
 
         // Return Data Immediately if is a PreFlight OPTIONS Request
         if (!empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -801,16 +798,17 @@ class Spry
     /**
      * @param string $filterKey
      * @param mixed  $data
+     * @param mixed  $meta
      *
      * @return mixed
      */
-    public static function runFilter($filterKey = null, $data = null)
+    public static function runFilter($filterKey = null, $data = null, $meta = null)
     {
         if (!empty(self::$filters[$filterKey]) && is_array(self::$filters[$filterKey])) {
             array_multisort(array_column(self::$filters[$filterKey], 'order'), SORT_ASC, self::$filters[$filterKey]);
             foreach (self::$filters[$filterKey] as $filter) {
                 if (!empty($filter['controller'])) {
-                    $data = self::getResponse(self::getController($filter['controller']), $data, $filter['extraData'] ?? null);
+                    $data = self::getResponse(self::getController($filter['controller']), $data, $meta, $filter['extraData'] ?? null);
                 }
             }
         }
@@ -851,10 +849,11 @@ class Spry
     /**
      * @param string $hookKey
      * @param mixed  $data
+     * @param mixed  $meta
      *
      * @return void
      */
-    public static function runHook($hookKey = null, $data = null)
+    public static function runHook($hookKey = null, $data = null, $meta = null)
     {
         if (!empty(self::$hooks[$hookKey]) && is_array(self::$hooks[$hookKey])) {
             array_multisort(array_column(self::$hooks[$hookKey], 'order'), SORT_ASC, self::$hooks[$hookKey]);
@@ -867,7 +866,7 @@ class Spry
                         self::sendResponse($response);
                         exit;
                     }
-                    $data = self::getResponse(self::getController($hook['controller']), $data, $hook['extraData'] ?? null);
+                    self::getResponse(self::getController($hook['controller']), $data, $meta, $hook['extraData'] ?? null);
                 }
             }
         }
@@ -1758,16 +1757,21 @@ class Spry
      * @param array $controller
      * @param null  $params     Params as Filtered items or from hook
      * @param array $meta       Meta sent from Filter or Hook
+     * @param array $extraData  Meta sent from Filter or Hook when Added
      *
      * @access private
      *
      * @return mixed
      */
-    private static function getResponse($controller = array(), $params = null, $meta = null)
+    private static function getResponse($controller = array(), $params = null, $meta = null, $extraData = null)
     {
         if (isset($controller['function']) && is_callable($controller['function'])) {
+            if ($extraData) {
+                return call_user_func($controller['function'], $params, $meta, $extraData);
+            }
+
             if ($meta) {
-                return call_user_func($controller['function'], $params, $meta);
+                return call_user_func($controller['function'], $params, $meta, $extraData);
             }
 
             if ($params) {
@@ -1779,6 +1783,10 @@ class Spry
 
         if (!is_callable(array($controller['class'], $controller['method']))) {
             self::stop(15, null, $controller['class'].'::'.$controller['method']);
+        }
+
+        if ($extraData) {
+            return call_user_func(array($controller['class'], $controller['method']), $params, $meta, $extraData);
         }
 
         if ($meta) {
