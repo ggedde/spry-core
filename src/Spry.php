@@ -34,7 +34,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = "1.0.10";
+    private static $version = "1.0.11";
 
     /**
      * Initiates the API Call.
@@ -99,6 +99,20 @@ class Spry
 
         self::$cli = self::isCli();
 
+        if (!empty($_SERVER['SpryTest']) || !empty($_SERVER['HTTP_SPRYTEST'])) {
+            self::$test = true;
+        } elseif (function_exists('apache_request_headers')) {
+            $requestHeaders = apache_request_headers();
+            if (!empty($requestHeaders)) {
+                if (is_array($requestHeaders)) {
+                    $requestHeaders = array_combine(array_map('ucwords', array_keys($requestHeaders)), array_values($requestHeaders));
+                }
+                if (!empty($requestHeaders['SpryTest']) || !empty($requestHeaders['Sprytest']) || !empty($requestHeaders['sprytest'])) {
+                    self::$test = true;
+                }
+            }
+        }
+
         if (empty($args['meta']) || !is_array($args['meta'])) {
             $args['meta'] = [];
         }
@@ -134,14 +148,7 @@ class Spry
 
         self::setRoutes();
 
-        $params = self::fetchParams($args['params']);
-
-        // IF Test Data then set currnt transaction as Test
-        if (!empty($params['test_data'])) {
-            self::$test = true;
-        }
-
-        self::setParams($params);
+        self::setParams(self::fetchParams($args['params']));
 
         if ($args['controller']) {
             $controller = self::getController($args['controller']);
