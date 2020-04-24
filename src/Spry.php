@@ -34,7 +34,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = "1.0.11";
+    private static $version = "1.0.12";
 
     /**
      * Initiates the API Call.
@@ -1051,7 +1051,7 @@ class Spry
                 16 => ['warning' => 'Error: Controller Not Found.'],
                 17 => ['warning' => 'Error: Method not allowed by Route.'],
 
-                /* DB */
+                /* Params */
                 20 => ['warning' => 'Error: Field did not Validate.'],
 
                 /* DB */
@@ -1074,6 +1074,11 @@ class Spry
                 51 => ['error' => 'Error: Retrieving Tests.'],
                 52 => ['error' => 'Error: No Tests Configured.'],
                 53 => ['error' => 'Error: No Test with that name Configured.'],
+                54 => [
+                    'success' => 'Remote Response Connected Successfully.',
+                    'warning' => 'Error: Remote Response Connection Failed',
+                    'error' => 'Error: Remote Response Unknown Error',
+                ],
 
                 /* Background Process */
                 60 => ['error' => 'Error: Background Process did not return Process ID.'],
