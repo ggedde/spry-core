@@ -161,7 +161,7 @@ class Spry
 
         ob_start();
 
-        if (self::isCli()) {
+        if (empty(self::$route)) {
             $response = self::getResponse($controller, self::$params, self::$meta);
         } else {
             $responseParams = self::validateParams();
@@ -340,8 +340,6 @@ class Spry
 
         // Set AutoLoaders for Components, Providers and Plugins
         spl_autoload_register(array(__CLASS__, 'autoloader'));
-
-        self::runHook('configureBeforeComponents');
 
         self::loadComponents();
 
@@ -732,7 +730,7 @@ class Spry
             $path = self::cleanPath($path[0]);
         } elseif (isset($_SERVER['SCRIPT_FILENAME']) && strpos($_SERVER['SCRIPT_FILENAME'], 'SpryCli.php')) {
             $path = '::spry_cli';
-        } elseif (self::isCli()) {
+        } elseif (self::isCli() || php_sapi_name() === 'cli' || (!empty($_SERVER['argc']) && is_numeric($_SERVER['argc']) && $_SERVER['argc'] > 0)) {
             $path = '::cli';
         }
 
@@ -977,12 +975,20 @@ class Spry
      */
     private static function loadComponents()
     {
-        foreach (self::getComponents() as $component) {
+        $components = self::getComponents();
+
+        foreach ($components as $component) {
             $class = $component['class'];
 
             if (method_exists($class, 'setup')) {
                 $class::setup();
             }
+        }
+
+        self::runHook('setup');
+
+        foreach ($components as $component) {
+            $class = $component['class'];
 
             if (method_exists($class, 'getRoutes')) {
                 $routes = $class::getRoutes();
@@ -1290,27 +1296,14 @@ class Spry
     /**
      * Adds a route to the allowed list.
      *
-     * @param string $path
-     * @param mixed  $params
-     * @param mixed  $args
-     *
      * @access private
      *
      * @return void
      */
-    private static function validateParams($path = null, $params = null, $args = null)
+    private static function validateParams()
     {
-        if (!empty($path)) {
-            $route = self::getRoute($path);
-        }
-
-        if (empty($route)) {
-            $route = (self::$route ? self::$route : self::getRoute());
-        }
-
-        if (is_null($params)) {
-            $params = self::params();
-        }
+        $route = (self::$route ? self::$route : self::getRoute());
+        $params = self::params();
 
         if (empty($route['params'])) {
             $newParams = ['params' => $params, 'meta' => []];
@@ -1642,7 +1635,7 @@ class Spry
         } else {
             $data = trim(file_get_contents('php://input'));
 
-            if (empty($data) && self::isCli()) {
+            if (empty($data) && (self::isCli() || php_sapi_name() === 'cli' || (!empty($_SERVER['argc']) && is_numeric($_SERVER['argc']) && $_SERVER['argc'] > 0))) {
                 $data = trim(file_get_contents('php://stdin'));
             }
 
