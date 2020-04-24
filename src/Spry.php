@@ -19,13 +19,14 @@ namespace Spry;
 class Spry
 {
     private static $auth;
-    private static $cli = false;
+    private static $cli = null;
+    private static $backgroundProcess = null;
     private static $config;
     private static $configFile = '';
     private static $db = null;
     private static $filters = [];
     private static $hooks = [];
-    private static $meta = [];
+    private static $meta = null;
     private static $params = [];
     private static $path = null;
     private static $requestId = '';
@@ -34,7 +35,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = "1.0.12";
+    private static $version = "1.0.13";
 
     /**
      * Initiates the API Call.
@@ -77,14 +78,17 @@ class Spry
         // Set Defaults
         $args = array_merge(
             [
-                'config' => '',
-                'path' => '',
                 'controller' => '',
+                'process' => false,
                 'params' => null,
-                'meta' => [],
+                'config' => null,
+                'path' => null,
+                'meta' => null,
             ],
             (!empty($args) && is_array($args) ? $args : [])
         );
+
+        self::$backgroundProcess = !empty($args['process']) ? true : false;
 
         if (empty($args['config']) || (is_string($args['config']) && !file_exists($args['config']))) {
             $responseCode = 1;
@@ -96,8 +100,6 @@ class Spry
             trigger_error('Spry: '.$buildResponse->messages[0]);
             self::stop($responseCode);
         }
-
-        self::$cli = self::isCli();
 
         if (!empty($_SERVER['SpryTest']) || !empty($_SERVER['HTTP_SPRYTEST'])) {
             self::$test = true;
@@ -159,7 +161,7 @@ class Spry
 
         ob_start();
 
-        if (self::$cli) {
+        if (self::isCli()) {
             $response = self::getResponse($controller, self::$params, self::$meta);
         } else {
             $responseParams = self::validateParams();
@@ -178,16 +180,28 @@ class Spry
     }
 
     /**
+     * Checks to see if the current process was started by the Spry-Cli
+     * This does not check to see if it was started by any other cli operations
+     *
      * @access public
      *
      * @return boolean
      */
     public static function isCli()
     {
-        return (
-            php_sapi_name() === 'cli' ||
-            (!empty($_SERVER['argc']) && is_numeric($_SERVER['argc']) && $_SERVER['argc'] > 0)
-        );
+        return self::$cli;
+    }
+
+    /**
+     * Checks to see if the current process was started by Spry\SpryProvider\SpryBackgroundProcess
+     *
+     * @access public
+     *
+     * @return boolean
+     */
+    public static function isBackgroundProcess()
+    {
+        return self::$backgroundProcess;
     }
 
     /**
@@ -284,14 +298,19 @@ class Spry
     }
 
     /**
+     * Sets the Configuration Data for Spry
+     *
      * @param mixed $configData
+     * @param bool  $isCli
      *
      * @access public
      *
      * @return void
      */
-    public static function configure($configData = '')
+    public static function configure($configData = '', $isCli = false)
     {
+        self::$cli = $isCli;
+
         if (empty(self::$requestId)) {
             self::$requestId = md5(uniqid('', true));
         }
@@ -713,7 +732,7 @@ class Spry
             $path = self::cleanPath($path[0]);
         } elseif (isset($_SERVER['SCRIPT_FILENAME']) && strpos($_SERVER['SCRIPT_FILENAME'], 'SpryCli.php')) {
             $path = '::spry_cli';
-        } elseif (self::$cli) {
+        } elseif (self::isCli()) {
             $path = '::cli';
         }
 
@@ -1623,7 +1642,7 @@ class Spry
         } else {
             $data = trim(file_get_contents('php://input'));
 
-            if (empty($data) && self::$cli) {
+            if (empty($data) && self::isCli()) {
                 $data = trim(file_get_contents('php://stdin'));
             }
 
