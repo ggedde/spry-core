@@ -35,7 +35,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = "1.0.15";
+    private static $version = "1.0.16";
 
     /**
      * Initiates the API Call.
@@ -323,10 +323,8 @@ class Spry
             $config = $configData;
         } else {
             $config = (object) [];
-            $config->hooks = (object) [];
-            $config->filters = (object) [];
-            $config->db = (object) [];
-            $config->logger = (object) [];
+            $config->db = [];
+            $config->logger = [];
 
             include $configData;
             self::$configFile = $configData;
@@ -340,6 +338,8 @@ class Spry
 
         // Set AutoLoaders for Components, Providers and Plugins
         spl_autoload_register(array(__CLASS__, 'autoloader'));
+
+        self::runHook('initialized');
 
         self::loadComponents();
 
@@ -529,13 +529,13 @@ class Spry
     /**
      * Returns Logger Provider.
      *
-     * @param string $message
+     * @param string|null $message
      *
      * @access public
      *
      * @return object
      */
-    public static function log($message = '')
+    public static function log($message = null)
     {
         if (empty(self::$config->loggerProvider)) {
             return null;
@@ -547,8 +547,8 @@ class Spry
             self::stop(40);
         }
 
-        if ($message) {
-            if (!method_exists($logger, 'message')) {
+        if (!is_null($message)) {
+            if (method_exists($logger, 'message')) {
                 return $logger::message($message);
             }
 
@@ -772,34 +772,16 @@ class Spry
     }
 
     /**
-     * Return just the body of the request if successfull.
-     *
-     * @param mixed $result
-     *
-     * @access public
-     *
-     * @return mixed
-     */
-    public static function getBody($result)
-    {
-        if (!empty($result->status) && $result->status === 'success' && isset($result->body)) {
-            return $result->body;
-        }
-
-        return null;
-    }
-
-    /**
      * Adds Hook to Spry Hooks
      *
      * @param string|array $filterKey
      * @param mixed        $controller
-     * @param array        $extraData
+     * @param array|null   $extraData
      * @param int          $order
      *
      * @return mixed
      */
-    public static function addFilter($filterKey = '', $controller = null, $extraData = [], $order = 0)
+    public static function addFilter($filterKey, $controller, $extraData = null, $order = 0)
     {
         $filterKeys = $filterKey;
 
@@ -826,10 +808,10 @@ class Spry
      *
      * @return mixed
      */
-    public static function runFilter($filterKey = null, $data = null, $meta = null)
+    public static function runFilter($filterKey, $data = null, $meta = null)
     {
         if (!empty(self::$filters[$filterKey]) && is_array(self::$filters[$filterKey])) {
-            array_multisort(array_column(self::$filters[$filterKey], 'order'), SORT_ASC, self::$filters[$filterKey]);
+            array_multisort(array_column(self::$filters[$filterKey], 'order'), SORT_DESC, self::$filters[$filterKey]);
             foreach (self::$filters[$filterKey] as $filter) {
                 if (!empty($filter['controller'])) {
                     $data = self::getResponse(self::getController($filter['controller']), $data, $meta, $filter['extraData'] ?? null);
@@ -843,14 +825,14 @@ class Spry
     /**
      * Adds Hook to Spry Hooks
      *
-     * @param string $hookKey
-     * @param mixed  $controller
-     * @param array  $extraData
-     * @param int    $order
+     * @param string?array $hookKey
+     * @param mixed        $controller
+     * @param array?null   $extraData
+     * @param int          $order
      *
      * @return mixed
      */
-    public static function addHook($hookKey = '', $controller = null, $extraData = [], $order = 0)
+    public static function addHook($hookKey, $controller, $extraData = null, $order = 0)
     {
         $hookKeys = $hookKey;
 
@@ -877,10 +859,10 @@ class Spry
      *
      * @return void
      */
-    public static function runHook($hookKey = null, $data = null, $meta = null)
+    public static function runHook($hookKey, $data = null, $meta = null)
     {
         if (!empty(self::$hooks[$hookKey]) && is_array(self::$hooks[$hookKey])) {
-            array_multisort(array_column(self::$hooks[$hookKey], 'order'), SORT_ASC, self::$hooks[$hookKey]);
+            array_multisort(array_column(self::$hooks[$hookKey], 'order'), SORT_DESC, self::$hooks[$hookKey]);
             foreach (self::$hooks[$hookKey] as $hook) {
                 if (!empty($hook['controller'])) {
                     // Skip Get Controller if Contrller not exists only for STOP
@@ -980,43 +962,6 @@ class Spry
         foreach ($components as $component) {
             $class = $component['class'];
 
-            if (method_exists($class, 'setup')) {
-                $class::setup();
-            }
-        }
-
-        self::runHook('setup');
-
-        foreach ($components as $component) {
-            $class = $component['class'];
-
-            if (method_exists($class, 'getRoutes')) {
-                $routes = $class::getRoutes();
-                if (!empty($routes)) {
-                    foreach ($routes as $routeKey => $route) {
-                        self::$config->routes[$routeKey] = $route;
-                    }
-                }
-            }
-
-            if (method_exists($class, 'getSchema')) {
-                $schemas = $class::getSchema();
-                if (!empty($schemas)) {
-                    foreach ($schemas as $schemaKey => $schema) {
-                        self::$config->db['schema']['tables'][$schemaKey] = $schema;
-                    }
-                }
-            }
-
-            if (method_exists($class, 'getTests')) {
-                $tests = $class::getTests();
-                if (!empty($tests)) {
-                    foreach ($tests as $testKey => $test) {
-                        self::$config->tests[$testKey] = $test;
-                    }
-                }
-            }
-
             if (method_exists($class, 'getCodes')) {
                 $componentCodes = $class::getCodes();
                 if (!empty($componentCodes)) {
@@ -1041,6 +986,51 @@ class Spry
                                 self::$config->responseCodes[$codeGroup][$codeKey] = $code;
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        foreach ($components as $component) {
+            $class = $component['class'];
+
+            if (method_exists($class, 'setup')) {
+                $class::setup();
+            }
+        }
+
+        self::runHook('setup');
+
+        foreach ($components as $component) {
+            $class = $component['class'];
+
+            if (method_exists($class, 'getSchema')) {
+                $schemas = $class::getSchema();
+                if (!empty($schemas)) {
+                    foreach ($schemas as $schemaKey => $schema) {
+                        self::$config->db['schema']['tables'][$schemaKey] = $schema;
+                    }
+                }
+            }
+        }
+
+        foreach ($components as $component) {
+            $class = $component['class'];
+
+            if (method_exists($class, 'getRoutes')) {
+                $routes = $class::getRoutes();
+                if (!empty($routes)) {
+                    foreach ($routes as $routeKey => $route) {
+                        self::$config->routes[$routeKey] = $route;
+                    }
+                }
+            }
+
+            if (method_exists($class, 'getTests')) {
+                $tests = $class::getTests();
+                if (!empty($tests)) {
+                    foreach ($tests as $testKey => $test) {
+                        self::$config->tests[$testKey] = $test;
                     }
                 }
             }
