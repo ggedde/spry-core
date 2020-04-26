@@ -35,7 +35,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = '1.0.17';
+    private static $version = '1.0.18';
 
     /**
      * Initiates the API Call.
@@ -330,15 +330,10 @@ class Spry
             (!empty($config->responseCodes) ? $config->responseCodes : [])
         );
 
-        self::$config = self::runFilter('configurePreSetup', $config);
-
-        // Return Data Immediately if is a PreFlight OPTIONS Request
-        if (!empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-            self::sendOutput();
-        }
-
         // Set AutoLoaders for Components, Providers and Plugins
         spl_autoload_register(array(__CLASS__, 'autoloader'));
+
+        self::$config = $config;
 
         self::runHook('initialized');
 
@@ -346,6 +341,11 @@ class Spry
 
         // Configure Filter
         self::$config = self::runFilter('configure', self::$config);
+
+        // Return Data Immediately if is a PreFlight OPTIONS Request
+        if (!empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+            self::sendOutput();
+        }
 
         self::runHook('configure');
     }
@@ -999,8 +999,6 @@ class Spry
                 $class::setup();
             }
         }
-
-        self::runHook('setup');
 
         foreach ($components as $component) {
             $class = $component['class'];
