@@ -24,6 +24,7 @@ class Spry
     private static $config;
     private static $configFile = '';
     private static $db = null;
+    private static $logger = null;
     private static $filters = [];
     private static $hooks = [];
     private static $meta = null;
@@ -35,7 +36,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = '1.0.19';
+    private static $version = '1.0.20';
 
     /**
      * Initiates the API Call.
@@ -538,35 +539,37 @@ class Spry
      */
     public static function log($message = null)
     {
-        if (empty(self::$config->loggerProvider)) {
-            trigger_error('Spry: log() called, but missing loggerProvider.', E_USER_WARNING);
+        if (!self::$logger) {
+            if (empty(self::$config->loggerProvider)) {
+                trigger_error('Spry: log() called, but missing loggerProvider.', E_USER_WARNING);
 
-            return null;
+                return null;
+            }
+
+            $class = self::$config->loggerProvider;
+
+            if (!class_exists($class)) {
+                trigger_error('Spry: log() called, but cant find loggerProvider Class.', E_USER_WARNING);
+
+                self::stop(40);
+            }
+
+            self::$logger = new $class();
         }
-
-        $class = self::$config->loggerProvider;
-
-        if (!class_exists($class)) {
-            trigger_error('Spry: log() called, but cant find loggerProvider Class.', E_USER_WARNING);
-
-            self::stop(40);
-        }
-
-        $logger = new $class();
 
         if (is_null($message)) {
-            return $logger;
+            return self::$logger;
         }
 
-        if (method_exists($logger, 'message')) {
-            return $logger->message($message);
+        if (method_exists(self::$logger, 'message')) {
+            return self::$logger->message($message);
         }
 
-        if (!method_exists($logger, 'log')) {
+        if (!method_exists(self::$logger, 'log')) {
             trigger_error('Spry: Log Provider missing method "log".', E_USER_WARNING);
         }
 
-        return $logger->log($message);
+        return self::$logger->log($message);
     }
 
     /**
