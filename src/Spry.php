@@ -35,7 +35,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = '1.0.18';
+    private static $version = '1.0.19';
 
     /**
      * Initiates the API Call.
@@ -539,28 +539,34 @@ class Spry
     public static function log($message = null)
     {
         if (empty(self::$config->loggerProvider)) {
+            trigger_error('Spry: log() called, but missing loggerProvider.', E_USER_WARNING);
+
             return null;
         }
 
-        $logger = self::$config->loggerProvider;
+        $class = self::$config->loggerProvider;
 
-        if (!class_exists($logger)) {
+        if (!class_exists($class)) {
+            trigger_error('Spry: log() called, but cant find loggerProvider Class.', E_USER_WARNING);
+
             self::stop(40);
         }
 
-        if (!is_null($message)) {
-            if (method_exists($logger, 'message')) {
-                return $logger::message($message);
-            }
+        $logger = new $class();
 
-            if (!method_exists($logger, 'log')) {
-                trigger_error('Spry: Log Provider missing method "log".', E_USER_WARNING);
-            }
-
-            return $logger::log($message);
+        if (is_null($message)) {
+            return $logger;
         }
 
-        return $logger;
+        if (method_exists($logger, 'message')) {
+            return $logger->message($message);
+        }
+
+        if (!method_exists($logger, 'log')) {
+            trigger_error('Spry: Log Provider missing method "log".', E_USER_WARNING);
+        }
+
+        return $logger->log($message);
     }
 
     /**
