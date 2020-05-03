@@ -36,7 +36,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = '1.0.20';
+    private static $version = '1.0.21';
 
     /**
      * Initiates the API Call.
@@ -752,7 +752,7 @@ class Spry
     /**
      * Determines whether a Controller Exists.
      *
-     * @param string $controller
+     * @param string|array $controller
      *
      * @access public
      *
@@ -761,20 +761,28 @@ class Spry
     public static function controllerExists($controller = '')
     {
         if (!empty($controller)) {
-            if (!is_string($controller) || strpos($controller, '::') === false) {
+            if (is_string($controller) && strpos($controller, '::') === false) {
                 return false;
             }
 
-            list($class, $method) = explode('::', $controller);
+            if (is_array($controller) && (empty($controller[0]) || empty($controller[1]))) {
+                return false;
+            }
 
-            if (class_exists($class)) {
-                if (method_exists($class, $method)) {
-                    return true;
-                }
-            } elseif (class_exists('Spry\\SpryComponent\\'.$class)) {
-                if (method_exists('Spry\\SpryComponent\\'.$class, $method)) {
-                    return true;
-                }
+            if (is_string($controller)) {
+                list($class, $method) = explode('::', $controller);
+            }
+
+            if (is_array($controller)) {
+                $class = $controller[0];
+                $method = $controller[1];
+            }
+
+            if (class_exists($class) && method_exists($class, $method)) {
+                return true;
+            }
+            if (class_exists('Spry\\SpryComponent\\'.$class) && method_exists('Spry\\SpryComponent\\'.$class, $method)) {
+                return true;
             }
         }
 
