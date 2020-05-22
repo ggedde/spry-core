@@ -152,6 +152,7 @@ class Spry
             $controller = self::getController($args['controller']);
         } else {
             self::$route = self::getRoute(self::$path);
+            self::runHook('setRoute', self::$route);
             $controller = self::getController(self::$route['controller']);
         }
 
@@ -363,6 +364,9 @@ class Spry
     public static function getRoute($path = null)
     {
         if (!$path) {
+            if (!empty(self::$route)) {
+                return self::$route;
+            }
             $path = self::$path;
         }
 
@@ -634,6 +638,7 @@ class Spry
     public static function setAuth($object)
     {
         self::$auth = $object;
+        self::runHook('setAuth', self::$auth);
     }
 
     /**
