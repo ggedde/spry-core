@@ -1296,10 +1296,13 @@ class Spry
                 'active' => true,
                 'public' => true,
                 'label' => '',
+                'path' => '',
                 'params' => [],
             ],
             $route
         );
+
+        $route['path'] = $path;
 
         self::$routes[$path] = $route;
     }
