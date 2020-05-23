@@ -910,7 +910,7 @@ class Spry
      * @param array|null       $meta
      * @param string|int|array $additionalMessages
      *
-     * @access private
+     * @access public
      *
      * @return array
      */
@@ -974,7 +974,7 @@ class Spry
     /**
      * Loads the components
      *
-     * @access public
+     * @access private
      *
      * @return string
      */
@@ -1059,7 +1059,7 @@ class Spry
     }
 
     /**
-     * @access public
+     * @access private
      *
      * @return array
      */
@@ -1077,6 +1077,7 @@ class Spry
                 1 => ['error' => 'Error: Missing Config File'],
                 2 => ['error' => 'Error: Missing Salt in Config File'],
                 3 => ['error' => 'Error: Unknown configuration error on run.'],
+
                 /* Routes, Paths, Controllers */
                 10 => ['error' => 'Error: Response Output is Malformed. Check Controller or Routes for Headers already sent'],
                 11 => ['warning' => 'Error: Route Not Found.'],
@@ -1120,6 +1121,11 @@ class Spry
                 60 => ['error' => 'Error: Background Process did not return Process ID.'],
                 61 => ['error' => 'Error: Background Process could not find autoload.'],
                 62 => ['error' => 'Error: Unknown response from Background Process.'],
+
+                /* Rate Limits */
+                70 => ['error' => 'Error: Rate Limit Exceeded.'],
+                71 => ['error' => 'Error: Rate Limit Key Not Found.'],
+                72 => ['error' => 'Error: Rate Limit Directory Not Created.'],
             ],
         ];
     }
