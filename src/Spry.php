@@ -36,7 +36,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = '1.0.21';
+    private static $version = '1.0.25';
 
     /**
      * Initiates the API Call.
