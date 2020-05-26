@@ -19,14 +19,15 @@ namespace Spry;
 class Spry
 {
     private static $auth;
-    private static $cli = null;
     private static $backgroundProcess = null;
+    private static $cli = null;
     private static $config;
     private static $configFile = '';
+    private static $cron = null;
     private static $db = null;
-    private static $logger = null;
     private static $filters = [];
     private static $hooks = [];
+    private static $logger = null;
     private static $meta = null;
     private static $params = [];
     private static $path = null;
@@ -36,35 +37,88 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = '1.0.25';
+    private static $version = '1.1.0';
 
     /**
      * Initiates the API Call.
      *
-     * @param mixed $args
+     * @param array|string $config
+     * Either a string containing the location to the config file or an array containing the config settings.
+     * 
+     * Optionally, you can pass all arguments of this function to $config including $config itself as a base64 encoded Json string. 
+     * This is useful for cron, background processes, and other cli tasks.
+     * 
+     * @param array|string $controller
+     * A Callable to force a specific controller to run
+     * 
+     * @param array $params
+     * An array of Params to force to the controller. Otherwise spry will check for params.
+     * 
+     * @param string $path
+     * An path to force to the Spry. Otherwise spry will check for a path from the incomming connection.
+     * 
+     * @param string $process
+     * Whether the current process should be concidered a BackgroundProcess task. If true then you can use the isBackgroundProcess() method within your components. 
+     * See https://github.com/ggedde/spry-background-process
+     * 
+     * @param array $meta
+     * An array of Meta values to pass to the controller.
      *
      * @access public
      *
      * @return void
+     * 
      */
-    public static function run($args = [])
+    public static function run($config, $controller = null, $params = null, $path = null, $process = null, $meta = null)
     {
         self::$timestart = microtime(true);
         self::$requestId = md5(uniqid('', true));
 
-        if ($args && is_string($args)) {
-            if (file_exists($args)) {
-                $args = ['config' => $args];
+        // Check if $config is base64 encoded json string
+        if ($config && is_string($config) && !file_exists($config) && !preg_match('/[\"\[\{]+/', $config)) {
+
+            // Check if it is not Json and if so then base64_decode it.
+            $args = base64_decode($config);
+            $args = json_decode($args);
+
+            if (empty($args) || !is_object($args)) {
+                $responseCode = 3;
+                self::$config = (object) [];
+                self::$config->responseCodes = self::getCoreResponseCodes();
+                $buildResponse = self::buildResponse(null, $responseCode);
+
+                // Logger may not be setup so trigger php notice just in case
+                trigger_error('Spry: '.$buildResponse->messages[0]);
+                self::stop($responseCode);
             } else {
-                // Check if it is not Json and if so then base64_decode it.
-                if (!preg_match('/[\"\[\{]+/', $args)) {
-                    $args = base64_decode($args);
+                // Check to see if Args are passed in $config.
+                // If so, then decode them
+                if (isset($args->config)) {
+                    $config = $args->config;
                 }
-
-                $args = json_decode($args, true);
+                if (isset($args->controller) && is_null($controller)) {
+                    $controller = $args->controller;
+                }
+                if (isset($args->params) && is_null($params)) {
+                    $params = $args->params;
+                }
+                if (isset($args->path) && is_null($path)) {
+                    $path = $args->path;
+                }
+                if (isset($args->process) && is_null($process)) {
+                    $process = $args->process;
+                }
+                if (isset($args->meta) && is_null($meta)) {
+                    $meta = $args->meta;
+                }
             }
+        }
 
-            if (empty($args) || !is_array($args)) {
+        // Check if $config is json string
+        if ($config && is_string($config) && !file_exists($config)) {
+            $config = json_decode($config);
+
+            if (empty($config) || !is_object($config)) {
                 $responseCode = 3;
                 self::$config = (object) [];
                 self::$config->responseCodes = self::getCoreResponseCodes();
@@ -76,22 +130,9 @@ class Spry
             }
         }
 
-        // Set Defaults
-        $args = array_merge(
-            [
-                'controller' => '',
-                'process' => false,
-                'params' => null,
-                'config' => null,
-                'path' => null,
-                'meta' => null,
-            ],
-            (!empty($args) && is_array($args) ? $args : [])
-        );
+        self::$backgroundProcess = !empty($process) ? true : false;
 
-        self::$backgroundProcess = !empty($args['process']) ? true : false;
-
-        if (empty($args['config']) || (is_string($args['config']) && !file_exists($args['config']))) {
+        if (empty($config) || (is_string($config) && !file_exists($config))) {
             $responseCode = 1;
             self::$config = (object) [];
             self::$config->responseCodes = self::getCoreResponseCodes();
@@ -116,17 +157,13 @@ class Spry
             }
         }
 
-        if (empty($args['meta']) || !is_array($args['meta'])) {
-            $args['meta'] = [];
-        }
-
-        self::$meta = $args['meta'];
+        self::$meta = !empty($meta) && is_array($meta) ? $meta : [];
 
         // Setup Config Data Autoloader and Configure Filters
-        self::configure($args['config']);
+        self::configure($config);
 
-        if (empty(self::$config->projectPath) && is_string($args['config']) && file_exists($args['config'])) {
-            self::$config->projectPath = dirname($args['config']);
+        if (empty(self::$config->projectPath) && is_string($config) && file_exists($config)) {
+            self::$config->projectPath = dirname($config);
         }
 
         if (empty(self::$config->salt)) {
@@ -139,17 +176,17 @@ class Spry
             self::stop($responseCode);
         }
 
-        self::$path = (!empty($args['path']) ? $args['path'] : self::getPath());
+        self::$path = (!empty($path) && is_string($path) ? $path : self::getPath());
 
         // Set Path Hook
         self::runHook('setPath');
 
         self::setRoutes();
 
-        self::setParams(self::fetchParams($args['params']));
+        self::setParams(self::fetchParams($params));
 
-        if ($args['controller']) {
-            $controller = self::getController($args['controller']);
+        if ($controller) {
+            $controller = self::getController($controller);
         } else {
             self::$route = self::getRoute(self::$path);
             self::runHook('setRoute', self::$route);
@@ -174,6 +211,18 @@ class Spry
         }
 
         self::sendResponse($response);
+    }
+
+    /**
+     * Checks to see if the current process was specified as a Cron Task
+     *
+     * @access public
+     *
+     * @return boolean
+     */
+    public static function isCron()
+    {
+        return self::$cron;
     }
 
     /**
@@ -202,6 +251,16 @@ class Spry
     }
 
     /**
+     * @access public
+     *
+     * @return boolean
+     */
+    public static function isTest()
+    {
+        return self::$test;
+    }
+
+    /**
      * Loads the components
      *
      * @access public
@@ -224,16 +283,6 @@ class Spry
         }
 
         return $components;
-    }
-
-    /**
-     * @access public
-     *
-     * @return boolean
-     */
-    public static function isTest()
-    {
-        return self::$test;
     }
 
     /**
@@ -298,15 +347,17 @@ class Spry
      * Sets the Configuration Data for Spry
      *
      * @param mixed $configData
+     * @param bool  $isCron
      * @param bool  $isCli
      *
      * @access public
      *
      * @return void
      */
-    public static function configure($configData = '', $isCli = false)
+    public static function configure($configData = '', $isCron = false, $isCli = false)
     {
-        self::$cli = $isCli;
+        self::$cron = !empty($isCron);
+        self::$cli = !empty($isCli);
 
         if (empty(self::$requestId)) {
             self::$requestId = md5(uniqid('', true));
