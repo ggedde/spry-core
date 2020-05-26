@@ -96,6 +96,9 @@ class Spry
                 if (isset($args->config)) {
                     $config = $args->config;
                 }
+                if (isset($args->cron)) {
+                    self::$cron = $args->cron;
+                }
                 if (isset($args->controller) && is_null($controller)) {
                     $controller = $args->controller;
                 }
