@@ -163,7 +163,7 @@ class Spry
         self::$meta = !empty($meta) && is_array($meta) ? $meta : [];
 
         // Setup Config Data Autoloader and Configure Filters
-        self::configure($config);
+        self::configure($config, self::$cron);
 
         if (empty(self::$config->projectPath) && is_string($config) && file_exists($config)) {
             self::$config->projectPath = dirname($config);
