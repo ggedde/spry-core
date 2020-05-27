@@ -37,7 +37,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = '1.1.5';
+    private static $version = '1.1.6';
 
     /**
      * Initiates the API Call.
@@ -100,10 +100,10 @@ class Spry
                     self::$cron = $args->cron;
                 }
                 if (isset($args->controller) && is_null($controller)) {
-                    $controller = $args->controller;
+                    $controller = is_object($args->controller) ? (array) $args->controller : $args->controller;
                 }
                 if (isset($args->params) && is_null($params)) {
-                    $params = $args->params;
+                    $params = (array) $args->params;
                 }
                 if (isset($args->path) && is_null($path)) {
                     $path = $args->path;
@@ -112,7 +112,7 @@ class Spry
                     $process = $args->process;
                 }
                 if (isset($args->meta) && is_null($meta)) {
-                    $meta = $args->meta;
+                    $meta = (array) $args->meta;
                 }
             }
         }
@@ -178,6 +178,8 @@ class Spry
 
             self::stop($responseCode);
         }
+
+        Spry::log([$config, $controller, self::$cron, $params, $path, $process, $meta]);
 
         self::$path = (!empty($path) && is_string($path) ? $path : self::getPath());
 
@@ -1753,6 +1755,10 @@ class Spry
                 echo '</pre>';
                 exit;
             }
+        }
+
+        if (!empty($data) && !is_object($data)) {
+            $data = (array) $data;
         }
 
         if (!empty($data)) {
