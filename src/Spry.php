@@ -179,8 +179,6 @@ class Spry
             self::stop($responseCode);
         }
 
-        Spry::log([$config, $controller, self::$cron, $params, $path, $process, $meta]);
-
         self::$path = (!empty($path) && is_string($path) ? $path : self::getPath());
 
         // Set Path Hook
