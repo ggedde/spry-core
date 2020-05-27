@@ -37,7 +37,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = '1.1.6';
+    private static $version = '1.1.7';
 
     /**
      * Initiates the API Call.
@@ -1757,7 +1757,7 @@ class Spry
             }
         }
 
-        if (!empty($data) && !is_object($data)) {
+        if (!empty($data) && is_object($data)) {
             $data = (array) $data;
         }
 
