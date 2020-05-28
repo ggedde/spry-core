@@ -37,7 +37,7 @@ class Spry
     private static $test = false;
     private static $timestart;
     private static $validator;
-    private static $version = '1.1.9';
+    private static $version = '1.1.10';
 
     /**
      * Initiates the API Call.
@@ -268,7 +268,7 @@ class Spry
      *
      * @access public
      *
-     * @return string
+     * @return array
      */
     public static function getComponents()
     {
@@ -334,7 +334,7 @@ class Spry
     /**
      * @access public
      *
-     * @return string
+     * @return string|null
      */
     public static function getMethod()
     {
@@ -409,7 +409,7 @@ class Spry
     /**
      * Returns the Route including path and attached controller.
      *
-     * @param string $path
+     * @param string|null $path
      *
      * @access public
      *
@@ -687,7 +687,7 @@ class Spry
      *
      * @access public
      *
-     * @return object
+     * @return void
      */
     public static function setAuth($object)
     {
@@ -856,7 +856,7 @@ class Spry
      * @param array|null   $extraData
      * @param int          $order
      *
-     * @return mixed
+     * @return void
      */
     public static function addFilter($filterKey, $controller, $extraData = null, $order = 0)
     {
@@ -907,7 +907,7 @@ class Spry
      * @param array?null   $extraData
      * @param int          $order
      *
-     * @return mixed
+     * @return void
      */
     public static function addHook($hookKey, $controller, $extraData = null, $order = 0)
     {
@@ -966,7 +966,7 @@ class Spry
      *
      * @access public
      *
-     * @return array
+     * @return object
      */
     public static function response($data = null, $responseCode = 0, $responseStatus = null, $meta = null, $additionalMessages = [])
     {
@@ -983,13 +983,13 @@ class Spry
      * Formats the Response and Sends
      * it to the Output Method.
      *
-     * @param array $response
+     * @param object $response
      *
      * @access public
      *
      * @return void
      */
-    public static function sendResponse($response = array())
+    public static function sendResponse($response)
     {
         if (empty($response->status) || empty($response->code)) {
             $response = self::response($response);
@@ -1006,7 +1006,7 @@ class Spry
      *
      * @access private
      *
-     * @return string
+     * @return array
      */
     private static function getTracedResponseCode($responseCode)
     {
@@ -1030,7 +1030,7 @@ class Spry
      *
      * @access private
      *
-     * @return string
+     * @return void
      */
     private static function loadComponents()
     {
@@ -1214,7 +1214,7 @@ class Spry
      *
      * @access private
      *
-     * @return array
+     * @return object
      */
     private static function buildResponse($data = null, $code = '', $status = null, $meta = null, $additionalMessages = '')
     {
@@ -1372,7 +1372,7 @@ class Spry
      *
      * @access private
      *
-     * @return void
+     * @return array
      */
     private static function validateParams()
     {
