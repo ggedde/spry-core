@@ -35,39 +35,40 @@ class Spry
     private static $route = null;
     private static $routes = [];
     private static $test = false;
+    private static $preflight = false;
     private static $timestart;
     private static $validator;
-    private static $version = '1.1.10';
+    private static $version = '1.1.11';
 
     /**
      * Initiates the API Call.
      *
      * @param array|string $config
      * Either a string containing the location to the config file or an array containing the config settings.
-     * 
-     * Optionally, you can pass all arguments of this function to $config including $config itself as a base64 encoded Json string. 
+     *
+     * Optionally, you can pass all arguments of this function to $config including $config itself as a base64 encoded Json string.
      * This is useful for cron, background processes, and other cli tasks.
-     * 
+     *
      * @param array|string $controller
      * A Callable to force a specific controller to run
-     * 
-     * @param array $params
+     *
+     * @param array        $params
      * An array of Params to force to the controller. Otherwise spry will check for params.
-     * 
-     * @param string $path
+     *
+     * @param string       $path
      * An path to force to the Spry. Otherwise spry will check for a path from the incomming connection.
-     * 
-     * @param string $process
-     * Whether the current process should be concidered a BackgroundProcess task. If true then you can use the isBackgroundProcess() method within your components. 
+     *
+     * @param string       $process
+     * Whether the current process should be concidered a BackgroundProcess task. If true then you can use the isBackgroundProcess() method within your components.
      * See https://github.com/ggedde/spry-background-process
-     * 
-     * @param array $meta
+     *
+     * @param array        $meta
      * An array of Meta values to pass to the controller.
      *
      * @access public
      *
      * @return void
-     * 
+     *
      */
     public static function run($config, $controller = null, $params = null, $path = null, $process = null, $meta = null)
     {
@@ -76,7 +77,6 @@ class Spry
 
         // Check if $config is base64 encoded json string
         if ($config && is_string($config) && !file_exists($config) && !preg_match('/[\"\[\{]+/', $config)) {
-
             // Check if it is not Json and if so then base64_decode it.
             $args = base64_decode($config);
             $args = json_decode($args);
@@ -146,6 +146,11 @@ class Spry
             self::stop($responseCode);
         }
 
+        // Check if is a PreFlight OPTIONS Request
+        if (!empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+            self::$preflight = true;
+        }
+
         if (!empty($_SERVER['SpryTest']) || !empty($_SERVER['HTTP_SPRYTEST'])) {
             self::$test = true;
         } elseif (function_exists('apache_request_headers')) {
@@ -161,6 +166,8 @@ class Spry
         }
 
         self::$meta = !empty($meta) && is_array($meta) ? $meta : [];
+
+        self::$params = self::fetchRawParams($params);
 
         // Setup Config Data Autoloader and Configure Filters
         self::configure($config, self::$cron);
@@ -186,7 +193,7 @@ class Spry
 
         self::setRoutes();
 
-        self::setParams(self::fetchParams($params));
+        self::setParams(self::addRouteParams(self::$params));
 
         if ($controller) {
             $controller = self::getController($controller);
@@ -261,6 +268,16 @@ class Spry
     public static function isTest()
     {
         return self::$test;
+    }
+
+    /**
+     * @access public
+     *
+     * @return boolean
+     */
+    public static function isPreflight()
+    {
+        return self::$preflight;
     }
 
     /**
@@ -399,7 +416,7 @@ class Spry
         self::$config = self::runFilter('configure', self::$config);
 
         // Return Data Immediately if is a PreFlight OPTIONS Request
-        if (!empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+        if (self::isPreflight()) {
             self::sendOutput();
         }
 
@@ -1076,6 +1093,11 @@ class Spry
             }
         }
 
+        // configureInitialized Filter
+        self::$config = self::runFilter('configureInitialized', self::$config);
+
+        self::runHook('setup');
+
         foreach ($components as $component) {
             $class = $component['class'];
 
@@ -1702,7 +1724,7 @@ class Spry
      *
      * @return array
      */
-    private static function fetchParams($params = null)
+    private static function fetchRawParams($params = null)
     {
         if (!is_null($params)) {
             $data = $params;
@@ -1723,23 +1745,6 @@ class Spry
 
             if (empty($data)) {
                 $data = [];
-            }
-
-            foreach (self::$routes as $routeUrl => $route) {
-                if (is_string($route)) {
-                    $routeUrl = $route;
-                }
-
-                $routeReg = '/'.str_replace('/', '\\/', preg_replace('/\{[^\}]+\}/', '(.*)', $routeUrl)).'/';
-
-                preg_match_all('/\{([^\}]+)\}/', $routeUrl, $matchParams);
-                preg_match_all($routeReg, self::$path, $matchValues);
-
-                if (preg_match($routeReg, self::$path) && !empty($matchParams[1]) && !empty($matchValues[1])) {
-                    foreach ($matchParams[1] as $matchParamKey => $matchParam) {
-                        $data[$matchParam] = $matchValues[1][$matchParamKey];
-                    }
-                }
             }
         }
 
@@ -1768,6 +1773,45 @@ class Spry
         }
 
         return $data;
+    }
+
+    /**
+     * Gets the Data sent in the API Call and converts it to Parameters.
+     * Then returns the converted Parameters as array.
+     * Throughs stop() on failure.
+     *
+     * @param array $params
+     *
+     * @access private
+     *
+     * @return array
+     */
+    private static function addRouteParams($params = [])
+    {
+        if (empty($params)) {
+            $params = [];
+        }
+
+        foreach (self::$routes as $routeUrl => $route) {
+            if (is_string($route)) {
+                $routeUrl = $route;
+            }
+
+            $routeReg = '/'.str_replace('/', '\\/', preg_replace('/\{[^\}]+\}/', '(.*)', $routeUrl)).'/';
+
+            preg_match_all('/\{([^\}]+)\}/', $routeUrl, $matchParams);
+            preg_match_all($routeReg, self::$path, $matchValues);
+
+            if (preg_match($routeReg, self::$path) && !empty($matchParams[1]) && !empty($matchValues[1])) {
+                foreach ($matchParams[1] as $matchParamKey => $matchParam) {
+                    $params[$matchParam] = $matchValues[1][$matchParamKey];
+                }
+            }
+        }
+
+        $params = self::runFilter('params', $params);
+
+        return $params;
     }
 
     /**
@@ -1948,7 +1992,7 @@ class Spry
             }
         }
 
-        if (!empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+        if (self::isPreflight()) {
             echo '';
         } elseif (!empty($response['body'])) {
             echo $response['body'];
